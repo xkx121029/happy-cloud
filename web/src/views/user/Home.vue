@@ -20,7 +20,6 @@ import { toList, type FileItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
 import ShareDialog from '@/components/ShareDialog.vue'
-import UploadPanel from '@/components/UploadPanel.vue'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/notify'
 import { downloadFile } from '@/utils/download'
@@ -115,13 +114,37 @@ async function onCreateFolder() {
 /* ---------- 上传 ---------- */
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
-const uploadPanelVisible = ref(false)
 const uploadTasks = ref<UploadTaskItem[]>([])
 let uploadSeq = 0
 
+/** 上传任务转换为文件项，用于复用文件图标与卡片样式 */
+function taskFile(t: UploadTaskItem): FileItem {
+  return { id: -t.id, name: t.name, type: 1, size: t.size, parent_id: 0, hash: '', created_at: '' }
+}
+
+function taskStatusText(t: UploadTaskItem): string {
+  switch (t.status) {
+    case 'hashing':
+      return '校验中'
+    case 'uploading':
+      return `上传中 ${t.progress}%`
+    case 'merging':
+      return '合并中'
+    case 'done':
+      return '已完成'
+    case 'error':
+      return '上传失败'
+  }
+}
+
+function taskProgressStatus(t: UploadTaskItem): 'default' | 'success' | 'error' {
+  if (t.status === 'error') return 'error'
+  if (t.status === 'done') return 'success'
+  return 'default'
+}
+
 function startUploads(fileList: File[]) {
   if (!fileList.length) return
-  uploadPanelVisible.value = true
   for (const file of fileList) {
     const task: UploadTaskItem = { id: ++uploadSeq, name: file.name, size: file.size, status: 'hashing', progress: 0 }
     uploadTasks.value.push(task)
@@ -134,7 +157,7 @@ function startUploads(fileList: File[]) {
       }
     })
       .then(() => {
-        task.status = 'done'
+        uploadTasks.value = uploadTasks.value.filter((x) => x !== task)
         loadList()
         loadQuota()
       })
@@ -335,6 +358,17 @@ onBeforeUnmount(() => {
 
       <n-spin :show="loading">
         <div v-if="viewMode === 'grid'" class="file-grid">
+          <div v-for="t in uploadTasks" :key="t.id" class="file-card upload-task">
+            <div class="file-card-icon"><FileIcon :file="taskFile(t)" :size="42" /></div>
+            <div class="file-card-name" :title="t.name">{{ t.name }}</div>
+            <div class="file-card-meta">
+              <span>{{ taskStatusText(t) }}</span>
+              <span class="task-size">{{ formatSize(t.size) }}</span>
+            </div>
+            <div class="upload-task-progress">
+              <n-progress type="line" :percentage="t.progress" :height="6" :border-radius="3" :show-indicator="false" :status="taskProgressStatus(t)" />
+            </div>
+          </div>
           <div v-for="f in filteredFiles" :key="f.id" class="file-card" @dblclick="onOpen(f)" @contextmenu.prevent="showCtx($event, f)">
             <div class="file-card-icon"><FileIcon :file="f" :size="42" /></div>
             <div class="file-card-name" :title="f.name">{{ f.name }}</div>
@@ -370,6 +404,22 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody>
+              <tr v-for="t in uploadTasks" :key="t.id" class="upload-task-row">
+                <td>
+                  <div class="cell-name">
+                    <FileIcon :file="taskFile(t)" :size="22" />
+                    <span :title="t.name">{{ t.name }}</span>
+                  </div>
+                </td>
+                <td>{{ formatSize(t.size) }}</td>
+                <td>
+                  <div class="upload-list-progress">
+                    <n-progress type="line" :percentage="t.progress" :height="6" :border-radius="3" :show-indicator="false" :status="taskProgressStatus(t)" />
+                    <span class="upload-list-status" :class="{ error: t.status === 'error' }">{{ taskStatusText(t) }}</span>
+                  </div>
+                </td>
+                <td></td>
+              </tr>
               <tr v-for="f in filteredFiles" :key="f.id" @dblclick="onOpen(f)" @contextmenu.prevent="showCtx($event, f)">
                 <td>
                   <div class="cell-name">
@@ -435,7 +485,6 @@ onBeforeUnmount(() => {
       </template>
     </n-modal>
 
-    <UploadPanel v-model:visible="uploadPanelVisible" :tasks="uploadTasks" />
     <ShareDialog :visible="shareVisible" :file="shareTarget" @update:visible="shareVisible = $event" />
     <MoveDialog :visible="moveVisible" :file="moveTarget" @update:visible="moveVisible = $event" @moved="loadList" />
   </div>

@@ -202,17 +202,18 @@ a { color: var(--hc-primary); text-decoration: none; }
 .move-folder:hover { background: var(--hc-bg-panel); }
 .move-folder-name { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 上传面板 */
-.upload-empty { padding: 40px 0; }
-.upload-item { padding: 12px 0; border-bottom: 1px solid #eef1f5; }
-.upload-item:last-child { border-bottom: none; }
-.upload-item-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.upload-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upload-size { font-size: 12px; color: var(--hc-text-muted); white-space: nowrap; }
-.upload-item-foot { margin-top: 6px; }
-.upload-status { font-size: 12px; color: var(--hc-text-secondary); }
-.upload-status.ok { color: #16a34a; }
-.upload-status.error { color: #dc2626; }
+/* 上传任务：与文件卡片同等待遇，仅额外显示进度条 */
+.upload-task .file-card-meta { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.upload-task .task-size { color: var(--hc-text-secondary); }
+.upload-task-progress { margin-top: 10px; padding: 0 4px; }
+.upload-task-progress .n-progress { margin: 0; }
+
+/* 列表视图上传行 */
+.upload-task-row { background: var(--hc-bg-soft); }
+.upload-list-progress { display: flex; align-items: center; gap: 10px; }
+.upload-list-progress .n-progress { flex: 1; margin: 0; min-width: 0; }
+.upload-list-status { font-size: 12px; color: var(--hc-text-secondary); white-space: nowrap; }
+.upload-list-status.error { color: #dc2626; }
 
 /* ---------- 管理后台 ---------- */
 .admin-wrap { height: 100vh; }
