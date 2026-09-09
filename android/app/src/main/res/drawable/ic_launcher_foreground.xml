@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 云朵 -->
+    <path
+        android:fillColor="#4A3F35"
+        android:pathData="M38,66
+            a13,13 0 0 1 2,-25.9
+            a17,17 0 0 1 33,-2.4
+            a10.5,10.5 0 0 1 1.6,20.9
+            z
+            M31,70
+            h46
+            a10,10 0 0 1 0,20
+            h-46
+            a10,10 0 0 1 0,-20
+            z" />
+</vector>

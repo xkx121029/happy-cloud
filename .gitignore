@@ -1,0 +1,32 @@
+# 通用
+.DS_Store
+Thumbs.db
+*.log
+.env
+
+# Go
+backend/happy-cloud-backend
+backend/*.exe
+
+# Node / Web
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.apk
+*.aab
+
+# Flutter / Windows
+windows/.dart_tool/
+windows/.flutter-plugins
+windows/.flutter-plugins-dependencies
+windows/build/
+windows/.idea/
+windows/windows/flutter/ephemeral/
+windows/pubspec.lock

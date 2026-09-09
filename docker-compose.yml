@@ -1,0 +1,83 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        TARGETARCH: ${TARGETARCH:-amd64}
+    container_name: happy-cloud-backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      DB_DSN: "root:${MYSQL_ROOT_PASSWORD:-happycloud123}@tcp(mysql:3306)/happy_cloud?charset=utf8mb4&parseTime=True&loc=Local"
+      JWT_SECRET: "${JWT_SECRET:-happy-cloud-prod-secret-change-me}"
+      STORAGE_PATH: "/data/happy-cloud"
+      ADMIN_USER: "${ADMIN_USER:-admin}"
+      CORS_ORIGINS: "*"
+    volumes:
+      - data:/data/happy-cloud
+    depends_on:
+      - mysql
+      - redis
+
+  web:
+    build:
+      context: ./web
+    container_name: happy-cloud-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  mysql:
+    image: mysql:8.0
+    container_name: happy-cloud-mysql
+    restart: unless-stopped
+    ports:
+      # 开发调试用，生产环境建议移除
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-happycloud123}"
+      MYSQL_DATABASE: "happy_cloud"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-happycloud123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: happy-cloud-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  # 可选：MinIO 对象存储（默认使用本地磁盘存储，接入 MinIO 时在 backend 中配置）
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: happy-cloud-minio
+  #   restart: unless-stopped
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+  #     MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   volumes:
+  #     - minio-data:/data
+
+volumes:
+  data:
+  mysql-data:
+  redis-data:
+  # minio-data:
