@@ -21,8 +21,10 @@ const components = [
   NSpace, NSpin, NTag
 ]
 
+// naive-ui 组件的 name 为 "Input"、"FormItem" 等（无 N 前缀），
+// 而模板 <n-input> 会解析为 "NInput"，注册时需补上 N 前缀
 for (const c of components) {
-  app.component((c as unknown as { name: string }).name, c)
+  app.component('N' + (c as unknown as { name: string }).name, c)
 }
 
 app.use(createPinia())
