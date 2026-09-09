@@ -484,11 +484,12 @@ func deleteTree(userID uint, uname string, f *model.File) error {
 			}
 		}
 	}
-	// 删除实体：仅当无其他记录引用同一 hash 时才删磁盘
+	// 删除实体：仅当全站无其他记录引用同一 hash 时才删磁盘
+	// （转送/共享等场景下多用户可能复用同一实体，需跨用户统计引用）
 	if f.Type == 1 && f.StoragePath != "" {
 		var refs int64
 		db.DB.Model(&model.File{}).
-			Where("user_id = ? AND hash = ? AND type = 1", userID, f.Hash).
+			Where("hash = ? AND type = 1", f.Hash).
 			Count(&refs)
 		if refs <= 1 {
 			os.Remove(f.StoragePath)

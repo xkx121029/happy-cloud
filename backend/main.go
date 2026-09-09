@@ -44,6 +44,21 @@ func main() {
 		files.POST("/move", handler.Move)
 		files.POST("/delete", handler.Delete)
 		files.GET("/quota", handler.Quota)
+		files.POST("/shared/toggle", handler.ToggleShared)
+		files.GET("/shared/list", handler.ListShared)
+		files.GET("/shared/download", handler.DownloadShared)
+
+		transfer := api.Group("/transfer", middleware.Auth())
+		transfer.GET("/users", handler.SearchUsers)
+		transfer.POST("/send", handler.SendTransfer)
+		transfer.GET("/incoming", handler.IncomingTransfers)
+		transfer.POST("/:id/accept", handler.AcceptTransfer)
+		transfer.POST("/:id/reject", handler.RejectTransfer)
+
+		notify := api.Group("/notifications", middleware.Auth())
+		notify.GET("/list", handler.ListNotifications)
+		notify.POST("/:id/read", handler.ReadNotification)
+		notify.GET("/unread", handler.UnreadNotifications)
 
 		share := api.Group("/share")
 		share.POST("/create", middleware.Auth(), handler.CreateShare)

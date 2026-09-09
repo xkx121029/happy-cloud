@@ -215,6 +215,48 @@ a { color: var(--hc-primary); text-decoration: none; }
 .upload-list-status { font-size: 12px; color: var(--hc-text-secondary); white-space: nowrap; }
 .upload-list-status.error { color: #dc2626; }
 
+/* ---------- 共享目录 ---------- */
+.shared-subtitle { font-size: 12px; color: var(--hc-text-muted); margin-top: 1px; }
+
+/* ---------- 通知面板 ---------- */
+.notify-panel { max-height: 420px; overflow-y: auto; }
+.notify-head { font-size: 14px; font-weight: 600; padding: 4px 2px 10px; }
+.notify-empty { padding: 24px 0; text-align: center; color: var(--hc-text-muted); font-size: 13px; }
+.notify-item {
+  padding: 10px 12px; border: 1px solid var(--hc-border); border-radius: var(--hc-radius-sm);
+  margin-bottom: 8px; background: var(--hc-bg-panel);
+}
+.notify-item:last-child { margin-bottom: 0; }
+.notify-item.unread { border-color: #bfdbfe; background: #eff6ff; }
+.notify-title { font-size: 13px; font-weight: 600; }
+.notify-content { font-size: 12px; color: var(--hc-text-secondary); margin-top: 2px; word-break: break-all; }
+.notify-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.notify-time { font-size: 11px; color: var(--hc-text-muted); }
+.notify-state { font-size: 12px; color: var(--hc-text-muted); }
+.notify-state.ok { color: #16a34a; }
+
+/* ---------- 发送文件弹窗 ---------- */
+.send-file {
+  display: flex; align-items: center; gap: 12px; padding: 10px 0 16px;
+  border-bottom: 1px solid var(--hc-border); margin-bottom: 16px;
+}
+.send-search { margin-bottom: 10px; }
+.send-users {
+  max-height: 240px; overflow-y: auto;
+  border: 1px solid var(--hc-border); border-radius: var(--hc-radius-sm);
+  padding: 6px; background: var(--hc-bg-soft);
+}
+.send-user {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: 6px; cursor: pointer; transition: background 0.12s;
+}
+.send-user:hover { background: var(--hc-bg-panel); }
+.send-user.active { background: #eff6ff; }
+.send-user-info { flex: 1; min-width: 0; }
+.send-user-name { font-size: 13px; font-weight: 500; }
+.send-user-email { font-size: 12px; color: var(--hc-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.send-target { margin-top: 12px; font-size: 13px; color: var(--hc-text-secondary); }
+
 /* ---------- 管理后台 ---------- */
 .admin-wrap { height: 100vh; }
 .admin-logo {

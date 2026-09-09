@@ -18,16 +18,17 @@ type User struct {
 
 // File 文件/文件夹表，type: 0 文件夹 1 文件
 type File struct {
-	ID         uint      `gorm:"primaryKey" json:"id"`
-	UserID     uint      `gorm:"index" json:"-"`
-	ParentID   uint      `gorm:"index;default:0" json:"parent_id"` // 0 表示根
-	Name       string    `gorm:"size:255" json:"name"`
-	Type       int       `json:"type"` // 0 文件夹 1 文件，由业务代码显式赋值
-	Size       int64     `gorm:"default:0" json:"size"`
-	Hash       string    `gorm:"size:64;index" json:"hash"`
-	StoragePath string   `gorm:"size:512" json:"-"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	UserID      uint      `gorm:"index" json:"-"`
+	ParentID    uint      `gorm:"index;default:0" json:"parent_id"` // 0 表示根
+	Name        string    `gorm:"size:255" json:"name"`
+	Type        int       `json:"type"` // 0 文件夹 1 文件，由业务代码显式赋值
+	Size        int64     `gorm:"default:0" json:"size"`
+	Hash        string    `gorm:"size:64;index" json:"hash"`
+	StoragePath string    `gorm:"size:512" json:"-"`
+	IsShared    int       `gorm:"default:0;index" json:"is_shared"` // 0 私有 1 共享到公共目录
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Share 分享表
@@ -40,6 +41,32 @@ type Share struct {
 	ExpireAt  *time.Time `json:"expire_at"`
 	Views     int       `gorm:"default:0" json:"views"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Transfer 文件转送表（用户间私发文件），status: 0 待处理 1 已接受 2 已拒绝
+type Transfer struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	SenderID   uint      `gorm:"index" json:"sender_id"`
+	SenderName string    `gorm:"size:64" json:"sender_name"`
+	ReceiverID uint      `gorm:"index" json:"receiver_id"`
+	FileID     uint      `json:"file_id"`
+	FileName   string    `gorm:"size:255" json:"file_name"`
+	FileSize   int64     `json:"file_size"`
+	Status     int       `gorm:"default:0" json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// Notification 通知表，type: transfer 文件转送
+type Notification struct {
+	ID         uint      `gorm:"primaryKey" json:"id"`
+	UserID     uint      `gorm:"index" json:"-"`
+	Type       string    `gorm:"size:32" json:"type"`
+	Title      string    `gorm:"size:128" json:"title"`
+	Content    string    `gorm:"size:512" json:"content"`
+	TransferID uint      `gorm:"default:0" json:"transfer_id"` // 关联转送，type=transfer 时有效
+	IsRead     int       `gorm:"default:0" json:"is_read"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // Log 操作日志表

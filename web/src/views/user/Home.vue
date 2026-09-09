@@ -7,18 +7,23 @@ import {
   CreateOutline,
   DownloadOutline,
   FolderOpenOutline,
+  GlobeOutline,
   GridOutline,
   ListOutline,
   LogOutOutline,
+  NotificationsOutline,
   RefreshOutline,
   SearchOutline,
   ShareSocialOutline,
   TrashOutline
 } from '@vicons/ionicons5'
-import { deleteFiles, fetchQuota, listFiles, mkdir, renameFile } from '@/api/files'
-import { toList, type FileItem } from '@/api/types'
+import { deleteFiles, fetchQuota, listFiles, mkdir, renameFile, toggleShared } from '@/api/files'
+import { acceptTransfer, rejectTransfer } from '@/api/transfer'
+import { listNotifications, unreadCount } from '@/api/notification'
+import { toList, type FileItem, type NotificationItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
+import SendDialog from '@/components/SendDialog.vue'
 import ShareDialog from '@/components/ShareDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/notify'
@@ -289,16 +294,103 @@ function refresh() {
   loadQuota()
 }
 
+/* ---------- 共享到公共目录 ---------- */
+const sharingId = ref(0)
+
+async function onToggleShared(f: FileItem) {
+  sharingId.value = f.id
+  try {
+    const isShared = (f.is_shared ?? 0) === 1
+    await toggleShared({ file_id: f.id, shared: !isShared })
+    message.success(isShared ? '已取消公共共享' : '已共享到公共目录')
+    loadList()
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    sharingId.value = 0
+  }
+}
+
+/* ---------- 发送给用户 ---------- */
+const sendVisible = ref(false)
+const sendTarget = ref<FileItem | null>(null)
+
+function openSend(f: FileItem) {
+  sendTarget.value = f
+  sendVisible.value = true
+}
+
+/* ---------- 通知 ---------- */
+const notifyOpen = ref(false)
+const notifications = ref<NotificationItem[]>([])
+const unreadCountValue = ref(0)
+const notifyLoading = ref(false)
+let notifyTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadNotifications() {
+  notifyLoading.value = true
+  try {
+    const data = await listNotifications(1, 10)
+    notifications.value = data.items ?? []
+    const u = await unreadCount()
+    unreadCountValue.value = u.count
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    notifyLoading.value = false
+  }
+}
+
+function onNotifyOpen(open: boolean) {
+  notifyOpen.value = open
+  if (open) loadNotifications()
+}
+
+async function onAccept(n: NotificationItem) {
+  if (!n.transfer_id) return
+  try {
+    await acceptTransfer(n.transfer_id)
+    message.success('已接受，文件已转存到我的网盘')
+    loadNotifications()
+    loadList()
+    loadQuota()
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
+async function onReject(n: NotificationItem) {
+  if (!n.transfer_id) return
+  try {
+    await rejectTransfer(n.transfer_id)
+    message.success('已拒绝该文件')
+    loadNotifications()
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
 onMounted(() => {
   window.addEventListener('click', hideCtx)
   window.addEventListener('contextmenu', hideCtx)
   loadList()
   loadQuota()
+  loadNotifications()
+  // 轮询未读通知数，用户在线时及时感知新消息
+  notifyTimer = setInterval(async () => {
+    try {
+      const u = await unreadCount()
+      unreadCountValue.value = u.count
+    } catch {
+      /* ignore */
+    }
+  }, 60000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', hideCtx)
   window.removeEventListener('contextmenu', hideCtx)
+  if (notifyTimer) clearInterval(notifyTimer)
 })
 </script>
 
@@ -315,6 +407,38 @@ onBeforeUnmount(() => {
             <n-progress type="line" :percentage="quotaPercent" :height="6" :border-radius="3" :show-indicator="false" />
             <span class="quota-text">{{ formatSize(quota.used) }} / {{ formatSize(quota.max) }}</span>
           </div>
+          <n-button quaternary @click="router.push('/shared')">
+            <template #icon><n-icon><GlobeOutline /></n-icon></template>
+            共享目录
+          </n-button>
+          <n-popover trigger="click" :show="notifyOpen" placement="bottom-end" style="width: 340px" @update:show="onNotifyOpen">
+            <template #trigger>
+              <n-badge :value="unreadCountValue" :max="99" :show="unreadCountValue > 0">
+                <n-button quaternary circle title="通知">
+                  <template #icon><n-icon><NotificationsOutline /></n-icon></template>
+                </n-button>
+              </n-badge>
+            </template>
+            <div class="notify-panel">
+              <div class="notify-head">通知</div>
+              <n-spin :show="notifyLoading">
+                <div v-if="notifications.length === 0 && !notifyLoading" class="notify-empty">暂无通知</div>
+                <div v-for="n in notifications" :key="n.id" class="notify-item" :class="{ unread: n.is_read === 0 }">
+                  <div class="notify-title">{{ n.title }}</div>
+                  <div class="notify-content">{{ n.content }}</div>
+                  <div class="notify-foot">
+                    <span class="notify-time">{{ formatDate(n.created_at) }}</span>
+                    <template v-if="n.type === 'transfer' && n.transfer_status === 0">
+                      <n-button size="tiny" type="primary" @click="onAccept(n)">接受</n-button>
+                      <n-button size="tiny" @click="onReject(n)">拒绝</n-button>
+                    </template>
+                    <span v-else-if="n.type === 'transfer' && n.transfer_status === 1" class="notify-state ok">已接受</span>
+                    <span v-else-if="n.type === 'transfer' && n.transfer_status === 2" class="notify-state">已拒绝</span>
+                  </div>
+                </div>
+              </n-spin>
+            </div>
+          </n-popover>
           <n-button @click="fileInput?.click()">
             <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
             上传文件
@@ -461,6 +585,10 @@ onBeforeUnmount(() => {
       <div class="ctx-item" @click="openRename(ctxMenu.file!)">重命名</div>
       <div class="ctx-item" @click="openMove(ctxMenu.file!)">移动到</div>
       <div class="ctx-item" @click="openShare(ctxMenu.file!)">分享</div>
+      <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="onToggleShared(ctxMenu.file!)">
+        {{ (ctxMenu.file!.is_shared ?? 0) === 1 ? '取消公共共享' : '共享到公共目录' }}
+      </div>
+      <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="openSend(ctxMenu.file!)">发送给用户</div>
       <div class="ctx-divider" />
       <div class="ctx-item danger" @click="onDelete(ctxMenu.file!)">删除</div>
     </div>
@@ -487,5 +615,6 @@ onBeforeUnmount(() => {
 
     <ShareDialog :visible="shareVisible" :file="shareTarget" @update:visible="shareVisible = $event" />
     <MoveDialog :visible="moveVisible" :file="moveTarget" @update:visible="moveVisible = $event" @moved="loadList" />
+    <SendDialog :visible="sendVisible" :file="sendTarget" @update:visible="sendVisible = $event" />
   </div>
 </template>

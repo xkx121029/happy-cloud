@@ -38,3 +38,8 @@ export async function downloadShared(token: string, fileId: number, filename: st
   const blob = await fetchBlob(`/share/${token}/download`, { file_id: fileId })
   saveBlob(blob, filename)
 }
+
+export async function downloadSharedFile(fileId: number, filename: string) {
+  const blob = await fetchBlob('/files/shared/download', { file_id: fileId })
+  saveBlob(blob, filename)
+}

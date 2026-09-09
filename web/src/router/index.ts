@@ -8,6 +8,7 @@ const router = createRouter({
     { path: '/register', name: 'register', component: () => import('@/views/user/Register.vue'), meta: { public: true } },
     { path: '/share/:token', name: 'share', component: () => import('@/views/SharePreview.vue'), meta: { public: true } },
     { path: '/', name: 'home', component: () => import('@/views/user/Home.vue') },
+    { path: '/shared', name: 'shared', component: () => import('@/views/Shared.vue') },
     {
       path: '/admin',
       component: () => import('@/views/admin/AdminLayout.vue'),

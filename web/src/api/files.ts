@@ -1,5 +1,5 @@
 import { httpGet, httpPost, httpUpload } from './request'
-import type { FileItem, PageData, QuotaInfo } from './types'
+import type { FileItem, PageData, QuotaInfo, SharedFileItem } from './types'
 
 export interface HashCheckResult {
   exists: boolean
@@ -54,4 +54,14 @@ export function deleteFiles(fileIds: number[]) {
 
 export function fetchQuota() {
   return httpGet<QuotaInfo>('/files/quota')
+}
+
+/** 共享/取消共享到公共目录 */
+export function toggleShared(data: { file_id: number; shared: boolean }) {
+  return httpPost<{ is_shared: 0 | 1 }>('/files/shared/toggle', data)
+}
+
+/** 公共共享目录列表 */
+export function listShared() {
+  return httpGet<SharedFileItem[]>('/files/shared/list')
 }
