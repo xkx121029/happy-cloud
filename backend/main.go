@@ -82,6 +82,18 @@ func main() {
 		admin.GET("/logs", handler.ListLogs)
 	}
 
+	// 运行时 API 清单：机器可读，供各端客户端动态发现所有已注册接口
+	r.GET("/api/routes", func(c *gin.Context) {
+		rs := r.Routes()
+		items := make([]gin.H, 0, len(rs))
+		for _, rt := range rs {
+			if len(rt.Path) >= 5 && rt.Path[:5] == "/api/" {
+				items = append(items, gin.H{"method": rt.Method, "path": rt.Path})
+			}
+		}
+		util.OK(c, items)
+	})
+
 	log.Printf("Happy-Cloud backend 启动于 :%s", config.Cfg.ServerPort)
 	if err := r.Run(":" + config.Cfg.ServerPort); err != nil {
 		log.Fatal(err)
