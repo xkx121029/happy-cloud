@@ -612,7 +612,7 @@ onBeforeUnmount(() => {
           </table>
         </div>
 
-        <n-empty v-if="!loading && filteredFiles.length === 0" description="暂无文件，可拖拽文件到此处上传" style="padding: 60px 0" />
+        <n-empty v-if="!loading && filteredFiles.length === 0 && uploadTasks.length === 0" description="暂无文件，可拖拽文件到此处上传" style="padding: 60px 0" />
       </n-spin>
 
       <div v-if="dragging" class="drop-mask">
