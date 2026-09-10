@@ -24,7 +24,9 @@ import { toList, type FileItem, type NotificationItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
 import SendDialog from '@/components/SendDialog.vue'
+import SettingsDrawer from '@/components/SettingsDrawer.vue'
 import ShareDialog from '@/components/ShareDialog.vue'
+import { useSettingsStore } from '@/stores/settings'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/notify'
 import { downloadFile } from '@/utils/download'
@@ -33,6 +35,10 @@ import { uploadFile, type UploadTaskItem } from '@/utils/uploader'
 
 const store = useUserStore()
 const router = useRouter()
+const settings = useSettingsStore()
+
+/* ---------- 设置抽屉 ---------- */
+const settingsVisible = ref(false)
 
 /* ---------- 目录与文件列表 ---------- */
 const pathStack = ref<{ id: number; name: string }[]>([])
@@ -50,7 +56,7 @@ const quotaPercent = computed(() => {
   return Math.min(100, Math.round((quota.value.used / quota.value.max) * 100))
 })
 
-const viewMode = ref<'grid' | 'list'>('grid')
+const viewMode = ref<'grid' | 'list'>(settings.defaultView)
 const searchQuery = ref('')
 
 const filteredFiles = computed(() => {
@@ -454,6 +460,9 @@ onBeforeUnmount(() => {
               <span class="user-name">{{ store.user?.username }}</span>
             </div>
           </n-dropdown>
+          <n-button quaternary circle title="个性化设置" @click="settingsVisible = true">
+            <template #icon><n-icon><SettingsOutline /></n-icon></template>
+          </n-button>
         </div>
         <!-- 独立通知按钮：绝对定位在 header 右侧，与主按钮群解耦 -->
         <div class="notify-fab" @click="onNotifyOpen(!notifyOpen)" :title="'通知' + (unreadCountValue ? `（${unreadCountValue} 条未读）` : '')">
@@ -661,5 +670,6 @@ onBeforeUnmount(() => {
     <ShareDialog :visible="shareVisible" :file="shareTarget" @update:visible="shareVisible = $event" />
     <MoveDialog :visible="moveVisible" :file="moveTarget" @update:visible="moveVisible = $event" @moved="loadList" />
     <SendDialog :visible="sendVisible" :file="sendTarget" @update:visible="sendVisible = $event" />
+    <SettingsDrawer :visible="settingsVisible" @update:visible="settingsVisible = $event" />
   </div>
 </template>

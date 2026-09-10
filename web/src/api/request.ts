@@ -87,6 +87,11 @@ export async function httpPatch<T>(url: string, data?: object): Promise<T> {
   return res.data
 }
 
+export async function httpPut<T>(url: string, data?: object): Promise<T> {
+  const res = await request.put<unknown, ApiResponse<T>>(url, data)
+  return res.data
+}
+
 export async function httpDelete<T>(url: string, data?: object): Promise<T> {
   const res = await request.delete<unknown, ApiResponse<T>>(url, { data })
   return res.data

@@ -478,3 +478,33 @@ a { color: var(--hc-primary); text-decoration: none; }
 
 /* 抽屉内容分隔线 */
 .n-drawer .n-drawer-body-content-wrapper { background: var(--hc-bg-soft); }
+
+/* ---------- 设置抽屉 ---------- */
+.settings-section { margin-bottom: 24px; }
+.settings-section-title { font-size: 12px; font-weight: 600; color: var(--hc-text-muted); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px; }
+.setting-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 12px;
+  border: 1px solid var(--hc-border); border-radius: var(--hc-radius-sm);
+  background: var(--hc-bg-panel); margin-bottom: 8px;
+}
+.setting-row:last-child { margin-bottom: 0; }
+.setting-label { font-size: 13px; color: var(--hc-text); font-weight: 500; }
+.settings-tip { font-size: 12px; color: var(--hc-text-muted); line-height: 1.5; margin: 0; padding: 10px 12px; border-radius: var(--hc-radius-sm); background: var(--hc-bg-soft); border: 1px solid var(--hc-border); }
+.drawer-foot { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--hc-border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* ---------- 暗色主题覆盖（hc-dark 类加在 html 根元素） ---------- */
+html.hc-dark {
+  --hc-border: #3a3f47;
+  --hc-border-strong: #4a5059;
+  --hc-text: #e4e7ec;
+  --hc-text-secondary: #a3a8b0;
+  --hc-text-muted: #7a8089;
+  --hc-bg: #14161a;
+  --hc-bg-panel: #1c1f24;
+  --hc-bg-soft: #22262c;
+  --hc-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --hc-shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+html.hc-dark .hc-auth-page { background: radial-gradient(1200px 600px at 50% -10%, #1a2333, #14161a 60%); }
+html.hc-dark .hc-brand-mark, html.hc-dark .hc-brand-mark.large { box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4); }

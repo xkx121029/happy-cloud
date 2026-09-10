@@ -21,5 +21,5 @@ func Init() error {
 	if err != nil {
 		return err
 	}
-	return DB.AutoMigrate(&model.User{}, &model.File{}, &model.Share{}, &model.Log{}, &model.Transfer{}, &model.Notification{})
+	return DB.AutoMigrate(&model.User{}, &model.File{}, &model.Share{}, &model.Log{}, &model.Transfer{}, &model.Notification{}, &model.UserSettings{})
 }

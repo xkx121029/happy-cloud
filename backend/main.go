@@ -34,6 +34,10 @@ func main() {
 		auth.GET("/me", middleware.Auth(), handler.Me)
 		auth.POST("/change-password", middleware.Auth(), handler.ChangePassword)
 
+		user := api.Group("/user", middleware.Auth())
+		user.GET("/settings", handler.GetSettings)
+		user.PUT("/settings", handler.SaveSettings)
+
 		files := api.Group("/files", middleware.Auth())
 		files.GET("/list", handler.ListFiles)
 		files.POST("/mkdir", handler.Mkdir)

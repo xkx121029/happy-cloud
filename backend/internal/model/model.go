@@ -78,3 +78,11 @@ type Log struct {
 	Detail    string    `gorm:"size:512" json:"detail"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// UserSettings 用户个性化设置（JSON 存整包，避免频繁加列）
+type UserSettings struct {
+	ID         uint      `gorm:"primaryKey" json:"-"`
+	UserID     uint      `gorm:"uniqueIndex" json:"-"`
+	Settings   string    `gorm:"type:text" json:"settings"` // JSON 字符串
+	UpdatedAt  time.Time `json:"-"`
+}

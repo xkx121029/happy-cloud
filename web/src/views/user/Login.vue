@@ -2,11 +2,13 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useSettingsStore } from '@/stores/settings'
 import { message } from '@/utils/notify'
 
 const route = useRoute()
 const router = useRouter()
 const store = useUserStore()
+const settings = useSettingsStore()
 
 const username = ref('')
 const password = ref('')
@@ -33,6 +35,11 @@ onMounted(() => {
   if (route.query.no_admin === '1') {
     message.warning('该账号不是管理员，无权限访问管理后台')
   }
+  // 记住我：回填
+  if (settings.remember.enabled) {
+    username.value = settings.remember.username
+    password.value = settings.remember.password
+  }
 })
 
 async function onSubmit() {
@@ -43,6 +50,8 @@ async function onSubmit() {
   loading.value = true
   try {
     await store.login(username.value.trim(), password.value)
+    // 记住我
+    await settings.set('remember', { username: username.value.trim(), password: password.value, enabled: true })
     // 管理员彩蛋：admin 账号登录 → 直接跳管理后台
     let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     if (adminMode.value && username.value.trim() === 'admin' && store.isAdmin) {
