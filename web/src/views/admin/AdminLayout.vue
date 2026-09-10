@@ -111,8 +111,10 @@ function onUserSelect(key: string | number) {
             </div>
           </n-dropdown>
         </n-layout-header>
-        <n-layout-content content-style="padding: 16px" :native-scrollbar="false">
-          <router-view />
+        <n-layout-content :native-scrollbar="false">
+          <div class="admin-content">
+            <router-view />
+          </div>
         </n-layout-content>
       </n-layout>
     </n-layout>

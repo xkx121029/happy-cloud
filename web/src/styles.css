@@ -441,6 +441,14 @@ a { color: var(--hc-primary); text-decoration: none; }
   height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
   background: var(--hc-bg-panel);
 }
+
+/* 管理后台内容区：统一内边距，内容不再贴面板边缘 */
+.admin-content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+.admin-content > * + * { margin-top: 20px; }
 .admin-title { font-size: 15px; font-weight: 600; }
 .admin-user { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: var(--hc-radius-sm); }
 .admin-user:hover { background: #f3f4f6; }

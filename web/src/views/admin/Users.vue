@@ -32,7 +32,7 @@ function toggleStatus(row: UserInfo) {
   const next = row.status === 1 ? 0 : 1
   updateUser(row.id, { status: next })
     .then(() => {
-      message.success(next === 1 ? '已启用该用户' : '已禁用该用户')
+      message.success(next === 0 ? '已启用该用户' : '已禁用该用户')
       load()
     })
     .catch(() => {
@@ -145,14 +145,14 @@ onMounted(load)
               </div>
             </td>
             <td>
-              <n-tag :type="row.status === 1 ? 'success' : 'error'" size="small" :bordered="false">
-                {{ row.status === 1 ? '正常' : '禁用' }}
+              <n-tag :type="row.status === 0 ? 'success' : 'error'" size="small" :bordered="false">
+                {{ row.status === 0 ? '正常' : '禁用' }}
               </n-tag>
             </td>
             <td>{{ formatDate(row.created_at) }}</td>
             <td>
               <n-space :size="4">
-                <n-button size="tiny" quaternary @click="toggleStatus(row)">{{ row.status === 1 ? '禁用' : '启用' }}</n-button>
+                <n-button size="tiny" quaternary :type="row.status === 0 ? 'warning' : 'success'" @click="toggleStatus(row)">{{ row.status === 0 ? '禁用' : '启用' }}</n-button>
                 <n-button size="tiny" quaternary @click="openQuota(row)">设置配额</n-button>
                 <n-button size="tiny" quaternary type="error" @click="onDelete(row)">删除</n-button>
               </n-space>
