@@ -20,6 +20,7 @@ import {
 import { deleteFiles, fetchQuota, listFiles, mkdir, renameFile, toggleShared } from '@/api/files'
 import { acceptTransfer, rejectTransfer } from '@/api/transfer'
 import { listNotifications, readNotification, unreadCount } from '@/api/notification'
+import { changeMyPassword } from '@/api/account'
 import { toList, type FileItem, type NotificationItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
@@ -289,14 +290,50 @@ function onDelete(f: FileItem) {
 /* ---------- 用户菜单 ---------- */
 const userOptions = [
   ...(store.isAdmin ? [{ label: '管理后台', key: 'admin' }] : []),
+  { label: '个性化设置', key: 'settings' },
+  { label: '修改密码', key: 'password' },
   { label: '退出登录', key: 'logout' }
 ]
 
 function onUserSelect(key: string | number) {
   if (key === 'admin') router.push('/admin')
-  if (key === 'logout') {
+  else if (key === 'settings') settingsVisible.value = true
+  else if (key === 'password') openChangePassword()
+  else if (key === 'logout') {
     store.logout()
     router.replace('/login')
+  }
+}
+
+/* ---------- 修改密码弹窗 ---------- */
+const pwdVisible = ref(false)
+const pwdLoading = ref(false)
+const oldPwd = ref('')
+const newPwd = ref('')
+const confirmPwd = ref('')
+
+function openChangePassword() {
+  oldPwd.value = ''
+  newPwd.value = ''
+  confirmPwd.value = ''
+  pwdVisible.value = true
+}
+
+async function onConfirmChangePwd() {
+  if (!oldPwd.value) return message.warning('请输入原密码')
+  if (newPwd.value.length < 6) return message.warning('新密码至少 6 位')
+  if (newPwd.value !== confirmPwd.value) return message.warning('两次输入的新密码不一致')
+  if (newPwd.value === oldPwd.value) return message.warning('新密码不能与原密码相同')
+  pwdLoading.value = true
+  try {
+    await changeMyPassword({ old_password: oldPwd.value, new_password: newPwd.value })
+    message.success('密码修改成功')
+    pwdVisible.value = false
+    oldPwd.value = newPwd.value = confirmPwd.value = ''
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    pwdLoading.value = false
   }
 }
 
@@ -455,20 +492,18 @@ onBeforeUnmount(() => {
             新建文件夹
           </n-button>
           <n-dropdown :options="userOptions" @select="onUserSelect">
-            <div class="user-chip">
+            <div class="user-chip" title="个人设置">
               <n-avatar round size="small" :style="{ background: '#2563EB' }">{{ store.user?.username?.slice(0, 1)?.toUpperCase() }}</n-avatar>
               <span class="user-name">{{ store.user?.username }}</span>
             </div>
           </n-dropdown>
-          <n-button quaternary circle title="个性化设置" @click="settingsVisible = true">
-            <template #icon><n-icon><SettingsOutline /></n-icon></template>
-          </n-button>
         </div>
         <!-- 独立通知按钮：绝对定位在 header 右侧，与主按钮群解耦 -->
         <div class="notify-fab" @click="onNotifyOpen(!notifyOpen)" :title="'通知' + (unreadCountValue ? `（${unreadCountValue} 条未读）` : '')">
           <n-badge :value="unreadCountValue" :max="99" :show="unreadCountValue > 0" type="error">
             <div class="notify-fab-icon"><n-icon :size="20"><NotificationsOutline /></n-icon></div>
           </n-badge>
+          <span v-if="unreadCountValue > 0" class="notify-dot" />
         </div>
       </div>
     </header>
@@ -671,5 +706,26 @@ onBeforeUnmount(() => {
     <MoveDialog :visible="moveVisible" :file="moveTarget" @update:visible="moveVisible = $event" @moved="loadList" />
     <SendDialog :visible="sendVisible" :file="sendTarget" @update:visible="sendVisible = $event" />
     <SettingsDrawer :visible="settingsVisible" @update:visible="settingsVisible = $event" />
+
+    <!-- 修改密码弹窗 -->
+    <n-modal :show="pwdVisible" preset="card" title="修改登录密码" style="width: 420px" :bordered="false" @update:show="pwdVisible = $event">
+      <n-form label-placement="top">
+        <n-form-item label="原密码">
+          <n-input v-model:value="oldPwd" type="password" show-password-on="click" placeholder="请输入当前密码" />
+        </n-form-item>
+        <n-form-item label="新密码">
+          <n-input v-model:value="newPwd" type="password" show-password-on="click" placeholder="至少 6 位" />
+        </n-form-item>
+        <n-form-item label="确认新密码">
+          <n-input v-model:value="confirmPwd" type="password" show-password-on="click" placeholder="再次输入新密码" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="pwdVisible = false">取消</n-button>
+          <n-button type="primary" :loading="pwdLoading" @click="onConfirmChangePwd">确认修改</n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
