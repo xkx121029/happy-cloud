@@ -363,7 +363,7 @@ async function onMarkRead(n: NotificationItem) {
 }
 
 async function onMarkAllRead() {
-  if (!unreadCountValue) return
+  if (!unreadCountValue.value) return
   try {
     // 前端先乐观更新，保持交互流畅；后端补一个 read-all 接口可后续再加
     await Promise.all(notifications.value.filter((n) => n.is_read === 0).map((n) => readNotification(n.id)))
