@@ -27,6 +27,9 @@ body {
 
 a { color: var(--hc-primary); text-decoration: none; }
 
+/* 全局文本选中态：跟随主题，避免深色模式下选中变白刺眼 */
+::selection { background: rgba(37, 99, 235, 0.25); color: inherit; }
+
 /* 全局输入控件：统一框线颜色 */
 .n-input .n-input__border,
 .n-input .n-input__state-border,
@@ -531,3 +534,5 @@ html.hc-dark {
 }
 html.hc-dark .hc-auth-page { background: radial-gradient(1200px 600px at 50% -10%, #1a2333, #14161a 60%); }
 html.hc-dark .hc-brand-mark, html.hc-dark .hc-brand-mark.large { box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4); }
+/* 深色模式选中态：深蓝高亮，避免浏览器默认浅色选中导致大片发白 */
+html.hc-dark ::selection { background: rgba(59, 130, 246, 0.4); color: #fff; }
