@@ -2,6 +2,8 @@ package handler
 
 import (
 	"errors"
+	"fmt"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -90,6 +92,86 @@ func Login(c *gin.Context) {
 	token, _ := middleware.GenerateToken(user.ID, user.Username, user.Role)
 	LogAction(user.ID, user.Username, "login", "登录成功")
 	util.OK(c, gin.H{"token": token, "user": user})
+}
+
+// InitAdmin 启动时确保管理员账号存在，若 ADMIN_PASSWORD 非空则强制重置密码
+func InitAdmin() {
+	if config.Cfg.AdminPassword == "" {
+		return
+	}
+	var user model.User
+	err := db.DB.Where("username = ?", config.Cfg.AdminUser).First(&user).Error
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(config.Cfg.AdminPassword), bcrypt.DefaultCost)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		user = model.User{
+			Username: config.Cfg.AdminUser,
+			Password: string(hashed),
+			Role:     1,
+			Status:   0,
+			QuotaMax: 1024 * 1024 * 1024 * 1024,
+		}
+		if err := db.DB.Create(&user).Error; err != nil {
+			log.Printf("[InitAdmin] 创建管理员账号失败: %v", err)
+			return
+		}
+		log.Printf("[InitAdmin] 已创建管理员账号 %s", config.Cfg.AdminUser)
+	} else if err == nil {
+		db.DB.Model(&user).Update("password", string(hashed))
+		log.Printf("[InitAdmin] 已重置管理员 %s 密码", config.Cfg.AdminUser)
+	}
+}
+
+// ChangePassword 修改当前登录用户密码；管理员可指定 target_user_id 重置他人密码
+func ChangePassword(c *gin.Context) {
+	userID := uid(c)
+	var me model.User
+	if err := db.DB.First(&me, userID).Error; err != nil {
+		util.Fail(c, 404, "账号不存在")
+		return
+	}
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password" binding:"required"`
+		TargetUser  *uint  `json:"target_user_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		util.Fail(c, 400, "新密码至少 6 位")
+		return
+	}
+
+	var target model.User
+	if req.TargetUser != nil {
+		if me.Role != 1 {
+			util.Fail(c, 403, "仅管理员可修改其他用户密码")
+			return
+		}
+		if err := db.DB.First(&target, *req.TargetUser).Error; err != nil {
+			util.Fail(c, 404, "目标用户不存在")
+			return
+		}
+	} else {
+		if err := bcrypt.CompareHashAndPassword([]byte(me.Password), []byte(req.OldPassword)); err != nil {
+			util.Fail(c, 401, "原密码错误")
+			return
+		}
+		target = me
+	}
+
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err := db.DB.Model(&target).Update("password", string(hashed)).Error; err != nil {
+		util.Fail(c, 500, "修改失败")
+		return
+	}
+	if target.ID == me.ID {
+		LogAction(userID, username(c), "password", "修改登录密码")
+	} else {
+		LogAction(userID, username(c), "password", fmt.Sprintf("重置用户 %s 密码", target.Username))
+	}
+	util.OK(c, gin.H{"ok": true})
 }
 
 // Me 当前登录用户信息

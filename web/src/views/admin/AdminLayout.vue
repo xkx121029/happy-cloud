@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, h, type Component } from 'vue'
+import { computed, h, ref, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   FolderOpenOutline,
   HomeOutline,
   ListOutline,
+  LockClosedOutline,
   LogOutOutline,
   PeopleOutline,
   SpeedometerOutline
@@ -12,6 +13,8 @@ import {
 import type { MenuOption } from 'naive-ui'
 import { NIcon } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
+import { changeMyPassword } from '@/api/account'
+import { message } from '@/utils/notify'
 
 const store = useUserStore()
 const route = useRoute()
@@ -31,6 +34,7 @@ const menuOptions: MenuOption[] = [
 ]
 
 const userMenuOptions = [
+  { label: '修改密码', key: 'change-password', icon: renderIcon(LockClosedOutline) },
   { label: '返回前台', key: 'home', icon: renderIcon(HomeOutline) },
   { label: '退出登录', key: 'logout', icon: renderIcon(LogOutOutline) }
 ]
@@ -47,11 +51,45 @@ function onMenuClick(key: string) {
   router.push(key)
 }
 
+/* ---------- 修改密码弹窗 ---------- */
+const pwdVisible = ref(false)
+const oldPwd = ref('')
+const newPwd = ref('')
+const confirmPwd = ref('')
+const pwdLoading = ref(false)
+
+function openChangePassword() {
+  oldPwd.value = ''
+  newPwd.value = ''
+  confirmPwd.value = ''
+  pwdVisible.value = true
+}
+
+async function onConfirmChangePwd() {
+  if (!oldPwd.value) return message.warning('请输入原密码')
+  if (newPwd.value.length < 6) return message.warning('新密码至少 6 位')
+  if (newPwd.value !== confirmPwd.value) return message.warning('两次输入的新密码不一致')
+  if (newPwd.value === oldPwd.value) return message.warning('新密码不能与原密码相同')
+  pwdLoading.value = true
+  try {
+    await changeMyPassword({ old_password: oldPwd.value, new_password: newPwd.value })
+    message.success('密码修改成功')
+    pwdVisible.value = false
+    oldPwd.value = newPwd.value = confirmPwd.value = ''
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    pwdLoading.value = false
+  }
+}
+
 function onUserSelect(key: string | number) {
   if (key === 'home') router.push('/')
-  if (key === 'logout') {
+  else if (key === 'logout') {
     store.logout()
     router.replace('/login')
+  } else if (key === 'change-password') {
+    openChangePassword()
   }
 }
 </script>
@@ -78,5 +116,26 @@ function onUserSelect(key: string | number) {
         </n-layout-content>
       </n-layout>
     </n-layout>
+
+    <!-- 修改密码弹窗 -->
+    <n-modal :show="pwdVisible" preset="card" title="修改登录密码" style="width: 420px" :bordered="false" @update:show="pwdVisible = $event">
+      <n-form label-placement="top">
+        <n-form-item label="原密码">
+          <n-input v-model:value="oldPwd" type="password" show-password-on="click" placeholder="请输入当前密码" />
+        </n-form-item>
+        <n-form-item label="新密码">
+          <n-input v-model:value="newPwd" type="password" show-password-on="click" placeholder="至少 6 位" />
+        </n-form-item>
+        <n-form-item label="确认新密码">
+          <n-input v-model:value="confirmPwd" type="password" show-password-on="click" placeholder="再次输入新密码" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="pwdVisible = false">取消</n-button>
+          <n-button type="primary" :loading="pwdLoading" @click="onConfirmChangePwd">确认修改</n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>

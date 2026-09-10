@@ -20,6 +20,7 @@ func main() {
 	if err := util.EnsureDir(config.Cfg.StoragePath); err != nil {
 		log.Fatalf("存储目录创建失败: %v", err)
 	}
+	handler.InitAdmin()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -31,6 +32,7 @@ func main() {
 		auth.POST("/register", handler.Register)
 		auth.POST("/login", handler.Login)
 		auth.GET("/me", middleware.Auth(), handler.Me)
+		auth.POST("/change-password", middleware.Auth(), handler.ChangePassword)
 
 		files := api.Group("/files", middleware.Auth())
 		files.GET("/list", handler.ListFiles)

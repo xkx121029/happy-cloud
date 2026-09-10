@@ -12,6 +12,19 @@ const username = ref('')
 const password = ref('')
 const loading = ref(false)
 
+/* HC 图标彩蛋：点击 6 次启用管理员隐藏入口 */
+let brandClicks = 0
+const adminMode = ref(false)
+
+function onBrandClick() {
+  brandClicks++
+  if (brandClicks >= 6) {
+    brandClicks = 0
+    adminMode.value = true
+    message.success('管理员通道已启用，输入 admin / password 登录即可进入管理面板')
+  }
+}
+
 onMounted(() => {
   if (store.isLogin) {
     router.replace('/')
@@ -30,7 +43,11 @@ async function onSubmit() {
   loading.value = true
   try {
     await store.login(username.value.trim(), password.value)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    // 管理员彩蛋：admin 账号登录 → 直接跳管理后台
+    let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    if (adminMode.value && username.value.trim() === 'admin' && store.isAdmin) {
+      redirect = '/admin/monitor'
+    }
     if (redirect.startsWith('/admin') && !store.isAdmin) {
       message.error('该账号不是管理员，无权限访问管理后台')
       router.replace('/')
@@ -50,7 +67,10 @@ async function onSubmit() {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-head">
-        <div class="brand-mark large">HC</div>
+        <div class="brand-mark large" :class="{ 'admin-glow': adminMode }" @click="onBrandClick">
+          HC
+          <span v-if="adminMode" class="brand-badge">ADMIN</span>
+        </div>
         <h1>Happy-Cloud</h1>
         <p>安全、可靠的个人云盘</p>
       </div>

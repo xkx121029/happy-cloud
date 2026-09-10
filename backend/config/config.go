@@ -14,8 +14,9 @@ type Config struct {
 	StoragePath  string
 	ChunkSize    int64  // 分片大小（字节），超过大文件阈值后强制分片
 	LargeFileMB  int64  // 大文件阈值（MB）
-	AdminUser    string // 指定用户名注册后即为管理员
-	CORSOrigins  []string
+	AdminUser     string // 指定用户名注册后即为管理员
+	AdminPassword string // 管理员初始密码（启动时重置 admin 为该值）
+	CORSOrigins   []string
 }
 
 var Cfg = &Config{}
@@ -29,6 +30,7 @@ func Load() {
 	Cfg.ChunkSize = atoi64Safe(getenv("CHUNK_SIZE_MB", "10")) * 1024 * 1024
 	Cfg.LargeFileMB = atoi64Safe(getenv("LARGE_FILE_MB", "100"))
 	Cfg.AdminUser = getenv("ADMIN_USER", "admin")
+	Cfg.AdminPassword = getenv("ADMIN_PASSWORD", "password")
 	origins := getenv("CORS_ORIGINS", "*")
 	Cfg.CORSOrigins = strings.Split(origins, ",")
 }

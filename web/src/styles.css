@@ -59,7 +59,30 @@ a { color: var(--hc-primary); text-decoration: none; }
   font-weight: 700; font-size: 16px; letter-spacing: 0.5px; flex: none;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
 }
-.brand-mark.large { width: 48px; height: 48px; font-size: 18px; border-radius: 12px; }
+.brand-mark.large { width: 48px; height: 48px; font-size: 18px; border-radius: 12px; cursor: pointer; user-select: none; transition: transform 0.15s, box-shadow 0.2s, background 0.2s; position: relative; }
+.brand-mark.large:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35); }
+.brand-mark.large:active { transform: scale(0.95); }
+.brand-mark.admin-glow {
+  background: linear-gradient(135deg, #0ea5e9, #6366f1, #ec4899);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25), 0 4px 18px rgba(139, 92, 246, 0.4);
+  animation: admin-pulse 2s ease-in-out infinite;
+}
+@keyframes admin-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25), 0 4px 18px rgba(139, 92, 246, 0.4); }
+  50%      { box-shadow: 0 0 0 6px rgba(139, 92, 246, 0.08), 0 4px 18px rgba(139, 92, 246, 0.5); }
+}
+.brand-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  background: #dc2626;
+  padding: 1px 5px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+}
 .auth-foot { margin-top: 20px; text-align: center; font-size: 13px; color: var(--hc-text-secondary); }
 
 /* 认证表单输入框：加清晰框线 */

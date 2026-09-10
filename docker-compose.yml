@@ -16,6 +16,7 @@ services:
       JWT_SECRET: "${JWT_SECRET:-happy-cloud-prod-secret-change-me}"
       STORAGE_PATH: "/data/happy-cloud"
       ADMIN_USER: "${ADMIN_USER:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-password}"
       CORS_ORIGINS: "*"
     volumes:
       - data:/data/happy-cloud
