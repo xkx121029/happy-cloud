@@ -114,7 +114,7 @@ a { color: var(--hc-primary); text-decoration: none; }
 }
 .quota-text { font-size: 12px; color: var(--hc-text-secondary); white-space: nowrap; }
 .user-chip { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 4px 8px; border-radius: var(--hc-radius-sm); }
-.user-chip:hover { background: #f3f4f6; }
+.user-chip:hover { background: var(--hc-bg-soft); }
 .user-name { font-size: 14px; }
 
 .home-main { flex: 1; max-width: 1200px; width: 100%; margin: 0 auto; padding: 20px 24px 40px; position: relative; }
@@ -164,7 +164,7 @@ a { color: var(--hc-primary); text-decoration: none; }
 .data-table td { padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--hc-border); }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table tbody tr { transition: background 0.12s; }
-.data-table tbody tr:hover { background: #f7f9fc; }
+.data-table tbody tr:hover { background: var(--hc-bg-soft); }
 
 /* 管理后台表格：整体加框线 */
 .admin-wrap .data-table {
@@ -182,7 +182,7 @@ a { color: var(--hc-primary); text-decoration: none; }
   box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1); padding: 4px; min-width: 130px;
 }
 .ctx-item { padding: 7px 14px; font-size: 13px; border-radius: 5px; cursor: pointer; }
-.ctx-item:hover { background: #f3f4f6; }
+.ctx-item:hover { background: var(--hc-bg-soft); }
 .ctx-item.danger { color: #dc2626; }
 .ctx-item.danger:hover { background: #fef2f2; }
 .ctx-divider { height: 1px; background: var(--hc-border); margin: 4px 6px; }
@@ -326,7 +326,7 @@ a { color: var(--hc-primary); text-decoration: none; }
   border-color: #bfdbfe;
   background: #eff6ff;
 }
-.notify-card.unread:hover { background: #dbeafe; }
+.notify-card.unread:hover { background: var(--hc-bg-soft); }
 /* 未读指示点（红色） */
 .notify-card-dot {
   position: absolute;
@@ -451,7 +451,7 @@ a { color: var(--hc-primary); text-decoration: none; }
 .admin-content > * + * { margin-top: 20px; }
 .admin-title { font-size: 15px; font-weight: 600; }
 .admin-user { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; padding: 4px 8px; border-radius: var(--hc-radius-sm); }
-.admin-user:hover { background: #f3f4f6; }
+.admin-user:hover { background: var(--hc-bg-soft); }
 
 .page-toolbar {
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
@@ -536,3 +536,7 @@ html.hc-dark .hc-auth-page { background: radial-gradient(1200px 600px at 50% -10
 html.hc-dark .hc-brand-mark, html.hc-dark .hc-brand-mark.large { box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4); }
 /* 深色模式选中态：深蓝高亮，避免浏览器默认浅色选中导致大片发白 */
 html.hc-dark ::selection { background: rgba(59, 130, 246, 0.4); color: #fff; }
+/* 深色模式语义 hover：危险项、未读通知卡片的浅色背景转深色 */
+html.hc-dark .ctx-item.danger:hover { background: rgba(220, 38, 38, 0.16); }
+html.hc-dark .notify-card.unread { background: #1c2430; border-color: #3a4a63; }
+html.hc-dark .notify-card.unread:hover { background: #222a38; }
