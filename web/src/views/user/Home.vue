@@ -587,19 +587,19 @@ onBeforeUnmount(() => {
             <div class="file-card-name" :title="f.name">{{ f.name }}</div>
             <div class="file-card-meta">{{ f.type === 0 ? '文件夹' : formatSize(f.size) }}</div>
             <div class="file-card-actions" @click.stop>
-              <n-button quaternary circle size="small" title="下载" :disabled="f.type === 0" @click="onDownload(f)">
+              <n-button quaternary circle size="tiny" title="下载" :disabled="f.type === 0" @click="onDownload(f)">
                 <template #icon><n-icon><DownloadOutline /></n-icon></template>
               </n-button>
-              <n-button quaternary circle size="small" title="重命名" @click="openRename(f)">
+              <n-button quaternary circle size="tiny" title="重命名" @click="openRename(f)">
                 <template #icon><n-icon><CreateOutline /></n-icon></template>
               </n-button>
-              <n-button quaternary circle size="small" title="移动" @click="openMove(f)">
+              <n-button quaternary circle size="tiny" title="移动" @click="openMove(f)">
                 <template #icon><n-icon><FolderAddOutline /></n-icon></template>
               </n-button>
-              <n-button quaternary circle size="small" title="分享" @click="openShare(f)">
+              <n-button quaternary circle size="tiny" title="分享" @click="openShare(f)">
                 <template #icon><n-icon><ShareSocialOutline /></n-icon></template>
               </n-button>
-              <n-button quaternary circle size="small" title="删除" @click="onDelete(f)">
+              <n-button quaternary circle size="tiny" title="删除" @click="onDelete(f)">
                 <template #icon><n-icon><TrashOutline /></n-icon></template>
               </n-button>
             </div>

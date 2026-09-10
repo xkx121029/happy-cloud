@@ -132,7 +132,7 @@ a { color: var(--hc-primary); text-decoration: none; }
 .file-card {
   position: relative; background: var(--hc-bg-panel);
   border: 1px solid var(--hc-border); border-radius: var(--hc-radius);
-  padding: 16px 10px 10px; text-align: center; cursor: default;
+  padding: 16px 10px 34px; text-align: center; cursor: default;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 .file-card:hover {
@@ -143,8 +143,25 @@ a { color: var(--hc-primary); text-decoration: none; }
 .file-card-icon { display: flex; justify-content: center; margin-bottom: 8px; }
 .file-card-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-card-meta { font-size: 12px; color: var(--hc-text-muted); margin-top: 2px; }
-.file-card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
-.file-card:hover .file-card-actions { opacity: 1; }
+
+/* 卡片底部操作栏：桌面 hover 淡入显示 */
+.file-card-actions {
+  position: absolute; left: 4px; right: 4px; bottom: 4px;
+  display: flex; justify-content: center; align-items: center; gap: 2px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s;
+}
+.file-card:hover .file-card-actions { opacity: 1; pointer-events: auto; }
+
+/* 手机/触屏端：无 hover，操作栏常驻在卡片下方 */
+@media (hover: none), (pointer: coarse) {
+  .file-card { padding: 16px 10px 10px; }
+  .file-card-actions {
+    position: static; opacity: 1; pointer-events: auto;
+    margin-top: 10px; padding: 4px 0;
+    background: var(--hc-bg-soft); border-radius: 8px;
+  }
+}
 
 /* 文件列表 */
 .file-list-wrap {
