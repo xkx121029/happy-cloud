@@ -122,7 +122,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in data.list" :key="row.id">
+          <tr v-for="row in data.items" :key="row.id">
             <td>{{ row.id }}</td>
             <td>{{ row.username }}</td>
             <td>{{ row.email || '-' }}</td>

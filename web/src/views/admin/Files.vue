@@ -74,7 +74,7 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in data.list" :key="row.id">
+          <tr v-for="row in data.items" :key="row.id">
             <td>{{ row.id }}</td>
             <td :title="row.name" style="max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ row.name }}</td>
             <td>

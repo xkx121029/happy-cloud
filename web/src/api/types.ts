@@ -93,7 +93,8 @@ export interface AdminLog {
 }
 
 export interface PageData<T> {
-  list: T[]
+  items?: T[]
+  list?: T[]
   total: number
   page?: number
   page_size?: number
@@ -103,5 +104,6 @@ export interface PageData<T> {
 export function toList<T>(data: T[] | PageData<T> | null | undefined): T[] {
   if (!data) return []
   if (Array.isArray(data)) return data
-  return data.list ?? []
+  // 后端统一返回 items，兼容历史 list 字段
+  return data.items ?? data.list ?? []
 }
