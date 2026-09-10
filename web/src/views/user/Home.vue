@@ -162,9 +162,14 @@ function startUploads(fileList: File[]) {
       }
     })
       .then(() => {
-        uploadTasks.value = uploadTasks.value.filter((x) => x !== task)
-        loadList()
-        loadQuota()
+        // 保留"已完成"状态短暂显示，再移除并刷新列表，避免界面瞬间无反馈
+        task.status = 'done'
+        task.progress = 100
+        setTimeout(() => {
+          uploadTasks.value = uploadTasks.value.filter((x) => x !== task)
+          loadList()
+          loadQuota()
+        }, 800)
       })
       .catch(() => {
         task.status = 'error'
