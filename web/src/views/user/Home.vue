@@ -497,13 +497,13 @@ onBeforeUnmount(() => {
               <span class="user-name">{{ store.user?.username }}</span>
             </div>
           </n-dropdown>
-        </div>
-        <!-- 独立通知按钮：绝对定位在 header 右侧，与主按钮群解耦 -->
-        <div class="notify-fab" @click="onNotifyOpen(!notifyOpen)" :title="'通知' + (unreadCountValue ? `（${unreadCountValue} 条未读）` : '')">
-          <n-badge :value="unreadCountValue" :max="99" :show="unreadCountValue > 0" type="error">
-            <div class="notify-fab-icon"><n-icon :size="20"><NotificationsOutline /></n-icon></div>
-          </n-badge>
-          <span v-if="unreadCountValue > 0" class="notify-dot" />
+          <!-- 通知按钮：普通流式图标按钮，与按钮群对齐 -->
+          <div class="notify-fab" @click="onNotifyOpen(!notifyOpen)" :title="'通知' + (unreadCountValue ? `（${unreadCountValue} 条未读）` : '')">
+            <n-badge :value="unreadCountValue" :max="99" :show="unreadCountValue > 0" type="error">
+              <div class="notify-fab-icon"><n-icon :size="20"><NotificationsOutline /></n-icon></div>
+            </n-badge>
+            <span v-if="unreadCountValue > 0" class="notify-dot" />
+          </div>
         </div>
       </div>
     </header>
