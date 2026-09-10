@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/share/:token', name: 'share', component: () => import('@/views/SharePreview.vue'), meta: { public: true } },
     { path: '/', name: 'home', component: () => import('@/views/user/Home.vue') },
     { path: '/shared', name: 'shared', component: () => import('@/views/Shared.vue') },
+    { path: '/notifications', name: 'notifications', component: () => import('@/views/Notifications.vue') },
     {
       path: '/admin',
       component: () => import('@/views/admin/AdminLayout.vue'),

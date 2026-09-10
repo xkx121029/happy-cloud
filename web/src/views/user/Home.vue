@@ -19,7 +19,7 @@ import {
 } from '@vicons/ionicons5'
 import { deleteFiles, fetchQuota, listFiles, mkdir, renameFile, toggleShared } from '@/api/files'
 import { acceptTransfer, rejectTransfer } from '@/api/transfer'
-import { listNotifications, unreadCount } from '@/api/notification'
+import { listNotifications, readNotification, unreadCount } from '@/api/notification'
 import { toList, type FileItem, type NotificationItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
@@ -351,6 +351,30 @@ function onNotifyOpen(open: boolean) {
   if (open) loadNotifications()
 }
 
+async function onMarkRead(n: NotificationItem) {
+  if (n.is_read === 1 || !n.id) return
+  try {
+    await readNotification(n.id)
+    n.is_read = 1
+    unreadCountValue.value = Math.max(0, unreadCountValue.value - 1)
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
+async function onMarkAllRead() {
+  if (!unreadCountValue) return
+  try {
+    // 前端先乐观更新，保持交互流畅；后端补一个 read-all 接口可后续再加
+    await Promise.all(notifications.value.filter((n) => n.is_read === 0).map((n) => readNotification(n.id)))
+    for (const n of notifications.value) n.is_read = 1
+    unreadCountValue.value = 0
+    message.success('已全部标记为已读')
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
 async function onAccept(n: NotificationItem) {
   if (!n.transfer_id) return
   try {
@@ -416,34 +440,6 @@ onBeforeUnmount(() => {
             <template #icon><n-icon><GlobeOutline /></n-icon></template>
             共享目录
           </n-button>
-          <n-popover trigger="click" :show="notifyOpen" placement="bottom-end" style="width: 340px" @update:show="onNotifyOpen">
-            <template #trigger>
-              <n-badge :value="unreadCountValue" :max="99" :show="unreadCountValue > 0">
-                <n-button quaternary circle title="通知">
-                  <template #icon><n-icon><NotificationsOutline /></n-icon></template>
-                </n-button>
-              </n-badge>
-            </template>
-            <div class="notify-panel">
-              <div class="notify-head">通知</div>
-              <n-spin :show="notifyLoading">
-                <div v-if="notifications.length === 0 && !notifyLoading" class="notify-empty">暂无通知</div>
-                <div v-for="n in notifications" :key="n.id" class="notify-item" :class="{ unread: n.is_read === 0 }">
-                  <div class="notify-title">{{ n.title }}</div>
-                  <div class="notify-content">{{ n.content }}</div>
-                  <div class="notify-foot">
-                    <span class="notify-time">{{ formatDate(n.created_at) }}</span>
-                    <template v-if="n.type === 'transfer' && n.transfer_status === 0">
-                      <n-button size="tiny" type="primary" @click="onAccept(n)">接受</n-button>
-                      <n-button size="tiny" @click="onReject(n)">拒绝</n-button>
-                    </template>
-                    <span v-else-if="n.type === 'transfer' && n.transfer_status === 1" class="notify-state ok">已接受</span>
-                    <span v-else-if="n.type === 'transfer' && n.transfer_status === 2" class="notify-state">已拒绝</span>
-                  </div>
-                </div>
-              </n-spin>
-            </div>
-          </n-popover>
           <n-button @click="fileInput?.click()">
             <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
             上传文件
@@ -459,8 +455,52 @@ onBeforeUnmount(() => {
             </div>
           </n-dropdown>
         </div>
+        <!-- 独立通知按钮：绝对定位在 header 右侧，与主按钮群解耦 -->
+        <div class="notify-fab" @click="onNotifyOpen(!notifyOpen)" :title="'通知' + (unreadCountValue ? `（${unreadCountValue} 条未读）` : '')">
+          <n-badge :value="unreadCountValue" :max="99" :show="unreadCountValue > 0" type="error">
+            <div class="notify-fab-icon"><n-icon :size="20"><NotificationsOutline /></n-icon></div>
+          </n-badge>
+        </div>
       </div>
     </header>
+
+    <n-drawer :show="notifyOpen" placement="right" :width="380" :bordered="false" @update:show="onNotifyOpen">
+      <div class="drawer-head">
+        <div class="drawer-title">通知</div>
+        <div class="drawer-right">
+          <n-button quaternary size="small" :disabled="unreadCountValue === 0" @click="onMarkAllRead">全部已读</n-button>
+          <n-button quaternary size="small" @click="router.push('/notifications'); notifyOpen = false">全部</n-button>
+        </div>
+      </div>
+      <n-spin :show="notifyLoading">
+        <div v-if="notifications.length === 0 && !notifyLoading" class="notify-empty">
+          <n-icon :size="36" color="#cbd5e1"><NotificationsOutline /></n-icon>
+          <div>暂无新通知</div>
+        </div>
+        <div v-for="n in notifications" :key="n.id" class="notify-card" :class="{ unread: n.is_read === 0 }" @click="onMarkRead(n)">
+          <div class="notify-card-dot" />
+          <div class="notify-card-avatar">
+            <n-icon :size="18"><NotificationsOutline /></n-icon>
+          </div>
+          <div class="notify-card-body">
+            <div class="notify-card-head">
+              <span class="notify-card-title">{{ n.title }}</span>
+              <span class="notify-card-time">{{ formatDate(n.created_at) }}</span>
+            </div>
+            <div class="notify-card-content">{{ n.content }}</div>
+            <div class="notify-card-actions">
+              <template v-if="n.type === 'transfer' && n.transfer_status === 0">
+                <n-button size="tiny" type="primary" @click.stop="onAccept(n)">接受</n-button>
+                <n-button size="tiny" @click.stop="onReject(n)">拒绝</n-button>
+              </template>
+              <span v-else-if="n.type === 'transfer' && n.transfer_status === 1" class="notify-state ok">已接受</span>
+              <span v-else-if="n.type === 'transfer' && n.transfer_status === 2" class="notify-state">已拒绝</span>
+              <span v-else class="notify-state">已读</span>
+            </div>
+          </div>
+        </div>
+      </n-spin>
+    </n-drawer>
 
     <main class="home-main" @dragenter.prevent="dragging = true" @dragover.prevent @dragleave="dragging = false" @drop.prevent="onDrop">
       <div class="toolbar">

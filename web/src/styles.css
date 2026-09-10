@@ -218,24 +218,156 @@ a { color: var(--hc-primary); text-decoration: none; }
 /* ---------- 共享目录 ---------- */
 .shared-subtitle { font-size: 12px; color: var(--hc-text-muted); margin-top: 1px; }
 
-/* ---------- 通知面板 ---------- */
-.notify-panel { max-height: 420px; overflow-y: auto; }
-.notify-head { font-size: 14px; font-weight: 600; padding: 4px 2px 10px; }
-.notify-empty { padding: 24px 0; text-align: center; color: var(--hc-text-muted); font-size: 13px; }
-.notify-item {
-  padding: 10px 12px; border: 1px solid var(--hc-border); border-radius: var(--hc-radius-sm);
-  margin-bottom: 8px; background: var(--hc-bg-panel);
+/* ---------- 独立通知按钮（header 右上角绝对定位） ---------- */
+.home-header { position: relative; }
+.home-header-inner { position: relative; }
+.notify-fab {
+  position: absolute;
+  right: -4px; /* 让它突出一点，视觉上独立于按钮群 */
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--hc-bg-panel);
+  border: 1px solid var(--hc-border);
+  box-shadow: var(--hc-shadow);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
 }
-.notify-item:last-child { margin-bottom: 0; }
-.notify-item.unread { border-color: #bfdbfe; background: #eff6ff; }
-.notify-title { font-size: 13px; font-weight: 600; }
-.notify-content { font-size: 12px; color: var(--hc-text-secondary); margin-top: 2px; word-break: break-all; }
-.notify-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-.notify-time { font-size: 11px; color: var(--hc-text-muted); }
+.notify-fab:hover { background: var(--hc-bg-soft); border-color: var(--hc-border-strong); }
+.notify-fab:active { transform: translateY(-50%) scale(0.96); }
+.notify-fab-icon { color: var(--hc-text-secondary); display: flex; align-items: center; }
+
+/* drawer 头部 */
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 14px;
+  border-bottom: 1px solid var(--hc-border);
+  margin-bottom: 12px;
+}
+.drawer-title { font-size: 16px; font-weight: 600; }
+.drawer-right { display: flex; gap: 4px; }
+
+/* drawer 里的空状态 */
+.notify-empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--hc-text-muted);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+/* 新版通知卡片 */
+.notify-card {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--hc-border);
+  border-radius: var(--hc-radius);
+  background: var(--hc-bg-panel);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.notify-card:last-child { margin-bottom: 0; }
+.notify-card:hover { border-color: var(--hc-border-strong); background: var(--hc-bg-soft); }
+.notify-card.unread {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.notify-card.unread:hover { background: #dbeafe; }
+/* 未读指示点（红色） */
+.notify-card-dot {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+}
+.notify-card.unread .notify-card-dot { background: #ef4444; }
+
+.notify-card-avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #6366f1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notify-card-body { flex: 1; min-width: 0; }
+.notify-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.notify-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--hc-text);
+}
+.notify-card-time {
+  font-size: 11px;
+  color: var(--hc-text-muted);
+  white-space: nowrap;
+}
+.notify-card-content {
+  font-size: 12px;
+  color: var(--hc-text-secondary);
+  line-height: 1.5;
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+.notify-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .notify-state { font-size: 12px; color: var(--hc-text-muted); }
 .notify-state.ok { color: #16a34a; }
 
-/* ---------- 发送文件弹窗 ---------- */
+/* ---------- 独立通知页 ---------- */
+.notify-page-list { max-width: 780px; display: flex; flex-direction: column; }
+.notify-empty-page {
+  padding: 80px 0;
+  text-align: center;
+  color: var(--hc-text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.notify-empty-page-text { font-size: 14px; }
+.notify-badge-inline {
+  display: inline-block;
+  font-size: 12px;
+  color: #dc2626;
+  background: #fee2e2;
+  padding: 1px 8px;
+  border-radius: 999px;
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+/* ---------- 共享目录 ---------- */
 .send-file {
   display: flex; align-items: center; gap: 12px; padding: 10px 0 16px;
   border-bottom: 1px solid var(--hc-border); margin-bottom: 16px;
