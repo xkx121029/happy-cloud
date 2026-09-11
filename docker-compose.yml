@@ -30,7 +30,8 @@ services:
     container_name: happy-cloud-web
     restart: unless-stopped
     ports:
-      - "80:80"
+      # 主机 8000 映射到容器 80（避免与 NAS 系统 nginx 的 80 端口冲突）
+      - "8000:80"
     depends_on:
       - backend
 
