@@ -38,7 +38,8 @@ export function cancelShare(id: number) {
   return httpDelete<{ cancelled: boolean }>(`/share/mine/${id}`)
 }
 
-/** 更新分享：password 传空串清除密码，expire_at 传 null 表示永久 */
-export function updateShare(id: number, data: { password?: string; expire_at?: string | null }) {
+/** 更新分享：password 传空串清除密码；expire_at 传具体时间设置有效期；
+ *  clear_expire=true 表示设为永久（M1 修复：区分"未传"与"显式 null"） */
+export function updateShare(id: number, data: { password?: string; expire_at?: string | null; clear_expire?: boolean }) {
   return httpPut<{ updated: boolean }>(`/share/mine/${id}`, data)
 }

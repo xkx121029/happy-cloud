@@ -58,8 +58,13 @@ func UpdateUser(c *gin.Context) {
 		updates["quota_max"] = *req.QuotaMax
 	}
 	if len(updates) > 0 {
-		db.DB.Model(&u).Updates(updates)
+		if err := db.DB.Model(&u).Updates(updates).Error; err != nil {
+			util.Fail(c, 500, "更新失败")
+			return
+		}
 	}
+	// M10 修复：Updates 不写回结构体，重新查询后再返回，避免响应中携带更新前的旧数据
+	db.DB.First(&u, id)
 	adminLog(c, "update_user", fmt.Sprintf("修改用户 %s", u.Username))
 	util.OK(c, u)
 }
@@ -131,7 +136,13 @@ func AdminDeleteFile(c *gin.Context) {
 		return
 	}
 	ownerID := f.UserID
-	purgeTree(ownerID, f.Name, &f)
+	// L5 修复：purgeTree 日志应记录文件所有者的用户名，而非文件名
+	var owner model.User
+	uname := ""
+	if err := db.DB.First(&owner, ownerID).Error; err == nil {
+		uname = owner.Username
+	}
+	purgeTree(ownerID, uname, &f)
 	adminLog(c, "delete_file", fmt.Sprintf("强制删除文件 #%d %s", id, f.Name))
 	util.OK(c, gin.H{"deleted": id})
 }
@@ -145,6 +156,8 @@ func Stats(c *gin.Context) {
 	var storageUsed struct {
 		Total int64
 	}
+	// L6 修复：统计口径与 StorageOverview 统一——回收站文件仍占配额（M8 决策），
+	// storage_used 统计全部文件（含回收站），与 quota_used 口径一致
 	db.DB.Model(&model.File{}).Where("type = 1").Select("COALESCE(SUM(size),0) AS total").Scan(&storageUsed)
 	var todayUploads int64
 	db.DB.Model(&model.File{}).Where("type = 1 AND DATE(created_at) = CURDATE()").Count(&todayUploads)

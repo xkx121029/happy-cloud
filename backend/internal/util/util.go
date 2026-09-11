@@ -55,7 +55,8 @@ func FilePath(userID uint, hash string) string {
 	return filepath.Join(UserDir(userID), hash)
 }
 
-// ChunkDir 分片临时目录
-func ChunkDir(hash string) string {
-	return filepath.Join(config.Cfg.StoragePath, "tmp", hash)
+// ChunkDir 分片临时目录（按用户隔离：tmp/<userID>/<hash>，
+// 避免不同用户上传相同 hash 的分片互相覆盖/混用导致文件损坏，S6）
+func ChunkDir(userID uint, hash string) string {
+	return filepath.Join(config.Cfg.StoragePath, "tmp", strconv.FormatUint(uint64(userID), 10), hash)
 }

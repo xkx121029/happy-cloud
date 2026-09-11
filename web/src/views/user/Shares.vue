@@ -91,10 +91,14 @@ async function onSaveEdit() {
   let password: string | undefined
   if (editClearPwd.value) password = ''
   else if (editPassword.value) password = editPassword.value
+  // M1 修复：选择"永久"时发送 clear_expire=true 清除过期时间（原实现 expire_at 传 null 后端不更新，
+  // 导致改为永久后原过期时间仍生效）
+  const forever = editExpire.value === 'forever'
   try {
     await updateShare(editTarget.value.id, {
       password,
-      expire_at: expireDate(editExpire.value)
+      expire_at: forever ? undefined : expireDate(editExpire.value),
+      clear_expire: forever ? true : undefined
     })
     message.success('分享设置已更新')
     editVisible.value = false

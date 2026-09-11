@@ -63,7 +63,8 @@ func SendTransfer(c *gin.Context) {
 		return
 	}
 	var f model.File
-	if err := db.DB.Where("id = ? AND user_id = ?", req.FileID, userID).First(&f).Error; err != nil {
+	// M4 修复：不允许发送回收站中的文件
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
@@ -126,7 +127,8 @@ func AcceptTransfer(c *gin.Context) {
 		return
 	}
 	var src model.File
-	if err := db.DB.First(&src, t.FileID).Error; err != nil {
+	// M4 修复：接收时同样校验原文件未被软删除，防止接收回收站文件（实体仍在磁盘）
+	if err := db.DB.Where("id = ? AND is_deleted = 0", t.FileID).First(&src).Error; err != nil {
 		util.Fail(c, 404, "原文件不存在，可能已被发送方删除")
 		return
 	}
@@ -152,7 +154,12 @@ func AcceptTransfer(c *gin.Context) {
 		util.Fail(c, 500, "转存失败")
 		return
 	}
-	updateQuota(userID, t.FileSize)
+	// L1 修复：配额增加改为原子条件更新（并发下防止突破配额），失败则回滚记录
+	if !tryAddQuota(userID, t.FileSize) {
+		db.DB.Delete(&f)
+		util.Fail(c, 507, "存储空间不足，无法接收该文件")
+		return
+	}
 	t.Status = 1
 	db.DB.Save(&t)
 	// 关联通知标记已读

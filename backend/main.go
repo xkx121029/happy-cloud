@@ -98,7 +98,8 @@ func main() {
 	}
 
 	// 运行时 API 清单：机器可读，供各端客户端动态发现所有已注册接口
-	r.GET("/api/routes", func(c *gin.Context) {
+	// L7 修复：要求登录后才能查看接口清单，避免未授权暴露全部接口信息
+	r.GET("/api/routes", middleware.Auth(), func(c *gin.Context) {
 		rs := r.Routes()
 		items := make([]gin.H, 0, len(rs))
 		for _, rt := range rs {

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
@@ -9,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -62,6 +65,11 @@ func Mkdir(c *gin.Context) {
 		return
 	}
 	userID := uid(c)
+	// L2 修复：新建文件夹时校验名称合法性（禁止路径分隔符/控制字符、限制长度）
+	if err := validateName(req.Name); err != nil {
+		util.Fail(c, 400, err.Error())
+		return
+	}
 	if err := checkNameDup(userID, req.ParentID, req.Name); err != nil {
 		util.Fail(c, 409, err.Error())
 		return
@@ -88,6 +96,11 @@ func UploadHash(c *gin.Context) {
 		return
 	}
 	userID := uid(c)
+	// L2 修复：秒传同样校验文件名合法性
+	if err := validateName(req.Name); err != nil {
+		util.Fail(c, 400, err.Error())
+		return
+	}
 	var exist model.File
 	err := db.DB.Where("user_id = ? AND hash = ? AND type = 1", userID, req.Hash).
 		Order("id ASC").First(&exist).Error
@@ -105,7 +118,12 @@ func UploadHash(c *gin.Context) {
 			util.Fail(c, 500, "创建失败")
 			return
 		}
-		updateQuota(userID, req.Size)
+		// L1 修复：配额增加改为原子条件更新（并发下防止突破配额），失败则回滚记录
+		if !tryAddQuota(userID, req.Size) {
+			db.DB.Delete(&f)
+			util.Fail(c, 507, "存储空间不足")
+			return
+		}
 		LogAction(userID, username(c), "upload", fmt.Sprintf("秒传 %s", req.Name))
 		util.OK(c, gin.H{"exists": true, "file_id": f.ID})
 		return
@@ -125,6 +143,11 @@ func Upload(c *gin.Context) {
 	// 超大文件由客户端走分片，此处仅允许 <= 100MB
 	if file.Size > config.Cfg.LargeFileMB*1024*1024 {
 		util.Fail(c, 400, "文件过大，请使用分片上传")
+		return
+	}
+	// L2 修复：上传文件名校验（禁止路径分隔符/控制字符、限制长度）
+	if err := validateName(file.Filename); err != nil {
+		util.Fail(c, 400, err.Error())
 		return
 	}
 	// 配额检查
@@ -171,7 +194,12 @@ func Upload(c *gin.Context) {
 		util.Fail(c, 500, "创建记录失败")
 		return
 	}
-	updateQuota(userID, file.Size)
+	// L1 修复：配额增加改为原子条件更新（并发下防止突破配额），失败则回滚记录
+	if !tryAddQuota(userID, file.Size) {
+		db.DB.Delete(&f)
+		util.Fail(c, 507, "存储空间不足")
+		return
+	}
 	LogAction(userID, username(c), "upload", fmt.Sprintf("上传 %s (%.1fMB)", name, float64(file.Size)/1024/1024))
 	util.OK(c, f)
 }
@@ -180,7 +208,14 @@ func Upload(c *gin.Context) {
 func UploadChunk(c *gin.Context) {
 	hash := c.PostForm("hash")
 	index := c.PostForm("chunk_index")
-	if hash == "" || index == "" {
+	total := c.PostForm("chunk_total")
+	if hash == "" || index == "" || total == "" {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	idx, errIdx := strconv.Atoi(index)
+	totalN, errTotal := strconv.Atoi(total)
+	if errIdx != nil || errTotal != nil || idx < 0 || totalN <= 0 || idx >= totalN {
 		util.Fail(c, 400, "参数错误")
 		return
 	}
@@ -189,10 +224,28 @@ func UploadChunk(c *gin.Context) {
 		util.Fail(c, 400, "缺少分片文件")
 		return
 	}
-	dir := util.ChunkDir(hash)
+	// S6 修复：限制单片大小，防止恶意超大分片耗尽磁盘
+	if file.Size > config.Cfg.ChunkSize {
+		util.Fail(c, 400, "分片大小超限")
+		return
+	}
+	userID := uid(c)
+	// S6 修复：分片目录按用户隔离（tmp/<userID>/<hash>），避免跨用户同 hash 分片互相覆盖/混用
+	dir := util.ChunkDir(userID, hash)
 	if err := util.EnsureDir(dir); err != nil {
 		util.Fail(c, 500, "存储目录异常")
 		return
+	}
+	// L16 修复：清理目录中超出本次总片数的残留分片，避免上次失败上传的旧分片干扰本次合并
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			if n, err := strconv.Atoi(e.Name()); err == nil && n >= totalN {
+				os.Remove(filepath.Join(dir, e.Name()))
+			}
+		}
 	}
 	if err := c.SaveUploadedFile(file, filepath.Join(dir, index)); err != nil {
 		util.Fail(c, 500, "保存分片失败")
@@ -215,6 +268,11 @@ func UploadMerge(c *gin.Context) {
 		return
 	}
 	userID := uid(c)
+	// L2 修复：合并上传同样校验文件名合法性
+	if err := validateName(req.Name); err != nil {
+		util.Fail(c, 400, err.Error())
+		return
+	}
 	var u model.User
 	if err := db.DB.First(&u, userID).Error; err != nil || u.Status != 0 {
 		util.Fail(c, 403, "账号不可用")
@@ -224,7 +282,8 @@ func UploadMerge(c *gin.Context) {
 		util.Fail(c, 507, "存储空间不足")
 		return
 	}
-	dir := util.ChunkDir(req.Hash)
+	// S6 修复：分片目录按用户隔离，避免跨用户分片互相覆盖/混用
+	dir := util.ChunkDir(userID, req.Hash)
 	// 读取全部分片
 	var parts []int
 	entries, err := os.ReadDir(dir)
@@ -243,6 +302,13 @@ func UploadMerge(c *gin.Context) {
 	if len(parts) != req.ChunkTotal {
 		util.Fail(c, 400, "分片不完整，请重新上传")
 		return
+	}
+	// L16 修复：严格校验分片索引必须为 0..ChunkTotal-1 连续，防止残留分片干扰合并
+	for i := 0; i < len(parts); i++ {
+		if parts[i] != i {
+			util.Fail(c, 400, "分片不完整，请重新上传")
+			return
+		}
 	}
 	path := util.FilePath(userID, req.Hash)
 	if err := util.EnsureDir(util.UserDir(userID)); err != nil {
@@ -272,6 +338,12 @@ func UploadMerge(c *gin.Context) {
 		util.Fail(c, 400, "合并文件大小不一致")
 		return
 	}
+	// M12 修复：重新计算合并文件内容 SHA256 并与请求 hash 比对，防止客户端伪造 hash 命中错误秒传内容
+	if got, err := hashFile(path); err != nil || got != req.Hash {
+		os.Remove(path)
+		util.Fail(c, 400, "文件内容校验失败")
+		return
+	}
 	// 清理临时分片
 	os.RemoveAll(dir)
 	name := uniqueName(userID, req.ParentID, req.Name)
@@ -283,7 +355,17 @@ func UploadMerge(c *gin.Context) {
 		util.Fail(c, 500, "创建记录失败")
 		return
 	}
-	updateQuota(userID, req.Size)
+	// L1 修复：配额增加改为原子条件更新，失败则回滚记录与实体
+	if !tryAddQuota(userID, req.Size) {
+		db.DB.Delete(&f)
+		var refs int64
+		db.DB.Model(&model.File{}).Where("hash = ? AND type = 1", req.Hash).Count(&refs)
+		if refs == 0 {
+			os.Remove(path)
+		}
+		util.Fail(c, 507, "存储空间不足")
+		return
+	}
 	LogAction(userID, username(c), "upload", fmt.Sprintf("分片上传 %s (%.1fMB)", name, float64(req.Size)/1024/1024))
 	util.OK(c, f)
 }
@@ -305,7 +387,8 @@ func Download(c *gin.Context) {
 		util.Fail(c, 404, "文件实体缺失")
 		return
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", url.QueryEscape(f.Name)))
+	// L4 修复：使用 RFC 5987 百分号编码（空格为 %20），避免 url.QueryEscape 把空格变成 + 导致部分浏览器文件名错误
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", rfc5987Encode(f.Name)))
 	c.File(f.StoragePath)
 }
 
@@ -317,6 +400,11 @@ func Rename(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		util.Fail(c, 400, "参数错误")
+		return
+	}
+	// L2 修复：重命名时同样校验名称合法性
+	if err := validateName(req.NewName); err != nil {
+		util.Fail(c, 400, err.Error())
 		return
 	}
 	userID := uid(c)
@@ -458,8 +546,11 @@ func DeletePermanent(c *gin.Context) {
 	}
 	userID := uid(c)
 	uname := username(c)
+	// S1/L8 修复：批量彻底删除时过滤出"根节点"（父文件夹也在本次待删列表中的子文件会被剔除），
+	// 子文件由根节点的递归处理完成，避免配额被重复扣减、purged 计数虚高
+	roots := trashRoots(userID, req.FileIDs)
 	var purged int64
-	for _, fid := range req.FileIDs {
+	for _, fid := range roots {
 		var f model.File
 		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 1", fid, userID).First(&f).Error; err != nil {
 			continue
@@ -477,9 +568,20 @@ func ClearTrash(c *gin.Context) {
 	uname := username(c)
 	var files []model.File
 	db.DB.Where("user_id = ? AND is_deleted = 1", userID).Find(&files)
-	var purged int64
+	// S1/L8 修复：仅对"根节点"彻底删除（父级也在回收站的子文件由根节点递归处理），
+	// 避免清空回收站时对子文件二次处理导致配额重复扣减、计数虚高
+	ids := make([]uint, 0, len(files))
 	for i := range files {
-		if err := purgeTree(userID, uname, &files[i]); err == nil {
+		ids = append(ids, files[i].ID)
+	}
+	roots := trashRoots(userID, ids)
+	var purged int64
+	for _, fid := range roots {
+		var f model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 1", fid, userID).First(&f).Error; err != nil {
+			continue
+		}
+		if err := purgeTree(userID, uname, &f); err == nil {
 			purged++
 		}
 	}
@@ -532,11 +634,11 @@ func FavoriteFile(c *gin.Context) {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
-	var count int64
-	db.DB.Model(&model.Favorite{}).Where("user_id = ? AND file_id = ?", userID, req.FileID).Count(&count)
-	if count == 0 {
-		db.DB.Create(&model.Favorite{UserID: userID, FileID: req.FileID})
-	}
+	// L3 修复：配合 (user_id, file_id) 唯一索引使用 FirstOrCreate，并发收藏不会产生重复记录
+	db.DB.FirstOrCreate(
+		&model.Favorite{UserID: userID, FileID: req.FileID},
+		model.Favorite{UserID: userID, FileID: req.FileID},
+	)
 	util.OK(c, gin.H{"favorited": true})
 }
 
@@ -646,20 +748,35 @@ func Preview(c *gin.Context) {
 		ctype = "image/gif"
 	case ".webp":
 		ctype = "image/webp"
-	case ".svg":
-		ctype = "image/svg+xml"
 	case ".bmp":
 		ctype = "image/bmp"
-	case ".mp4", ".webm", ".ogg", ".mov", ".m4v":
+	// M2 修复：按扩展名精确映射视频/音频 MIME，修复 webm/ogg/mov/wav/flac 等因错误类型无法播放的问题
+	case ".mp4", ".m4v":
 		ctype = "video/mp4"
-	case ".mp3", ".wav", ".flac", ".m4a", ".aac":
+	case ".webm":
+		ctype = "video/webm"
+	case ".ogg":
+		ctype = "video/ogg"
+	case ".mov":
+		ctype = "video/quicktime"
+	case ".mp3":
 		ctype = "audio/mpeg"
+	case ".wav":
+		ctype = "audio/wav"
+	case ".flac":
+		ctype = "audio/flac"
+	case ".m4a":
+		ctype = "audio/mp4"
+	case ".aac":
+		ctype = "audio/aac"
 	case ".pdf":
 		ctype = "application/pdf"
 	case ".txt", ".md", ".log", ".json", ".yaml", ".yml", ".csv":
 		ctype = "text/plain; charset=utf-8"
+	// S5 修复：html/htm 不再以 text/html 内联返回（存储型 XSS 风险，可窃取同域 localStorage 中的 JWT），
+	// 降级为纯文本；svg 也移出内联白名单（回退到 default 的 octet-stream，强制下载）
 	case ".html", ".htm":
-		ctype = "text/html; charset=utf-8"
+		ctype = "text/plain; charset=utf-8"
 	default:
 		ctype = "application/octet-stream"
 	}
@@ -677,7 +794,9 @@ func StorageOverview(c *gin.Context) {
 		return
 	}
 	var files []model.File
-	db.DB.Where("user_id = ? AND type = 1 AND is_deleted = 0", userID).Find(&files)
+	// M8 修复：统计口径统一——回收站文件仍占配额（moveToTrash 不扣减配额，purgeTree 才扣减），
+	// 因此概览统计全部 type=1 文件（含回收站），使分类之和与 quota_used 一致；前端 StorageCard 已标注"含回收站"
+	db.DB.Where("user_id = ? AND type = 1", userID).Find(&files)
 	var image, video, audio, doc, other int64
 	for _, f := range files {
 		ext := strings.ToLower(filepath.Ext(f.Name))
@@ -714,15 +833,45 @@ func Quota(c *gin.Context) {
 
 // ---------- 内部工具 ----------
 
+// updateQuota 增减配额（增加时带配额上限条件，并发下无法突破配额，L1）
 func updateQuota(userID uint, delta int64) {
+	if delta >= 0 {
+		db.DB.Model(&model.User{}).
+			Where("id = ? AND quota_used + ? <= quota_max", userID, delta).
+			UpdateColumn("quota_used", gorm.Expr("quota_used + ?", delta))
+		return
+	}
 	db.DB.Model(&model.User{}).Where("id = ?", userID).
+		UpdateColumn("quota_used", gorm.Expr("GREATEST(quota_used + ?, 0)", delta))
+}
+
+// tryAddQuota 原子增加配额，返回是否成功（配额不足返回 false，L1 防并发超配额）
+func tryAddQuota(userID uint, delta int64) bool {
+	if delta <= 0 {
+		return true
+	}
+	res := db.DB.Model(&model.User{}).
+		Where("id = ? AND quota_used + ? <= quota_max", userID, delta).
 		UpdateColumn("quota_used", gorm.Expr("quota_used + ?", delta))
+	return res.RowsAffected > 0
 }
 
 // checkNameDup 同目录重名检查
 func checkNameDup(userID, parentID uint, name string) error {
 	var count int64
 	db.DB.Model(&model.File{}).
+		Where("user_id = ? AND parent_id = ? AND name = ?", userID, parentID, name).
+		Count(&count)
+	if count > 0 {
+		return fmt.Errorf("同名文件或文件夹已存在")
+	}
+	return nil
+}
+
+// checkNameDupTx 同目录重名检查（事务内使用，供恢复等批量操作）
+func checkNameDupTx(tx *gorm.DB, userID, parentID uint, name string) error {
+	var count int64
+	tx.Model(&model.File{}).
 		Where("user_id = ? AND parent_id = ? AND name = ?", userID, parentID, name).
 		Count(&count)
 	if count > 0 {
@@ -741,6 +890,22 @@ func uniqueName(userID, parentID uint, name string) string {
 	for i := 1; i < 1000; i++ {
 		candidate := fmt.Sprintf("%s (%d)%s", base, i, ext)
 		if checkNameDup(userID, parentID, candidate) == nil {
+			return candidate
+		}
+	}
+	return name
+}
+
+// uniqueNameTx 重名时自动添加 (n) 后缀（事务内使用）
+func uniqueNameTx(tx *gorm.DB, userID, parentID uint, name string) string {
+	if checkNameDupTx(tx, userID, parentID, name) == nil {
+		return name
+	}
+	ext := filepath.Ext(name)
+	base := name[:len(name)-len(ext)]
+	for i := 1; i < 1000; i++ {
+		candidate := fmt.Sprintf("%s (%d)%s", base, i, ext)
+		if checkNameDupTx(tx, userID, parentID, candidate) == nil {
 			return candidate
 		}
 	}
@@ -774,52 +939,162 @@ func checkTarget(userID, targetParentID, selfID uint) error {
 	return nil
 }
 
-// moveToTrash 递归将文件/文件夹标记为回收站（软删除，不扣配额、不删磁盘）
-func moveToTrash(userID uint, uname string, f *model.File) error {
+// validateName 校验文件名/文件夹名：禁止路径分隔符、控制字符，限制长度（L2）
+func validateName(name string) error {
+	if name == "" || utf8.RuneCountInString(name) > 200 {
+		return fmt.Errorf("名称长度不合法（1-200 个字符）")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("名称不合法")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("名称不能包含 / 或 \\")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("名称包含非法控制字符")
+		}
+	}
+	return nil
+}
+
+// rfc5987Encode RFC 5987 文件名编码：百分号编码，空格用 %20
+// （url.QueryEscape 会把空格变成 +，导致部分浏览器下载文件名错误，L4）
+func rfc5987Encode(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+}
+
+// hashFile 流式计算文件内容 SHA256，避免大文件整体读入内存（M12）
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// trashRoots 从待处理文件 ID 列表中过滤出"根节点"：父文件夹也在回收站中的条目会被剔除，
+// 子文件统一由根节点的递归处理完成，避免清空回收站/批量彻底删除时重复处理
+// （S1 配额重复扣减、L8 purged 计数虚高）
+func trashRoots(userID uint, fileIDs []uint) []uint {
+	if len(fileIDs) <= 1 {
+		return fileIDs
+	}
+	inList := make(map[uint]bool, len(fileIDs))
+	for _, id := range fileIDs {
+		inList[id] = true
+	}
+	roots := make([]uint, 0, len(fileIDs))
+	for _, id := range fileIDs {
+		var f model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 1", id, userID).First(&f).Error; err != nil {
+			continue
+		}
+		if !inList[f.ParentID] {
+			roots = append(roots, id)
+		}
+	}
+	return roots
+}
+
+// moveToTrashWithTx 递归将文件/文件夹标记为回收站（软删除，不扣配额、不删磁盘；事务内执行）
+func moveToTrashWithTx(tx *gorm.DB, userID uint, uname string, f *model.File) error {
 	if f.Type == 0 {
 		var children []model.File
-		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, f.ID).Find(&children)
+		tx.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, f.ID).Find(&children)
 		for i := range children {
-			if err := moveToTrash(userID, uname, &children[i]); err != nil {
+			if err := moveToTrashWithTx(tx, userID, uname, &children[i]); err != nil {
 				return err
 			}
 		}
 	}
-	// 回收站文件不再计为正常占用（配额将在彻底删除时统一扣减）
+	// 回收站文件仍计为占用配额（配额在彻底删除 purgeTree 时统一扣减，与 StorageOverview 口径一致，M8）
+	// S3 修复：移入回收站时同步撤销公共共享，防止回收站文件通过共享直链被越权下载
 	f.IsDeleted = 1
-	if err := db.DB.Save(f).Error; err != nil {
+	f.IsShared = 0
+	if err := tx.Save(f).Error; err != nil {
 		return err
 	}
 	LogAction(userID, uname, "delete", fmt.Sprintf("移入回收站 %s", f.Name))
 	return nil
 }
 
-// restoreTree 递归恢复回收站文件/文件夹
-func restoreTree(userID uint, f *model.File) error {
-	if f.Type == 0 {
-		var children []model.File
-		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 1", userID, f.ID).Find(&children)
-		for i := range children {
-			if err := restoreTree(userID, &children[i]); err != nil {
-				return err
-			}
-		}
+// moveToTrash 移入回收站（事务包裹，保证整棵树原子更新，M13）
+func moveToTrash(userID uint, uname string, f *model.File) error {
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		return moveToTrashWithTx(tx, userID, uname, f)
+	})
+}
+
+// restoreNode 恢复单个节点（不递归子项），恢复前自动处理同目录重名（M3）
+func restoreNode(tx *gorm.DB, userID uint, f *model.File) error {
+	// M3 修复：恢复前检查同目录重名，重名时自动追加序号，避免破坏"同目录名称唯一"假设
+	if checkNameDupTx(tx, userID, f.ParentID, f.Name) != nil {
+		f.Name = uniqueNameTx(tx, userID, f.ParentID, f.Name)
 	}
 	f.IsDeleted = 0
-	if err := db.DB.Save(f).Error; err != nil {
+	if err := tx.Save(f).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
-// purgeTree 递归彻底删除文件/文件夹（物理删除），并扣减配额
-func purgeTree(userID uint, uname string, f *model.File) error {
+// restoreTreeWithTx 递归恢复回收站文件/文件夹（事务内执行）
+func restoreTreeWithTx(tx *gorm.DB, userID uint, f *model.File) error {
+	// S2 修复：先向上检查祖先链，若父文件夹仍在回收站则一并恢复（仅恢复祖先节点本身），
+	// 避免子文件 is_deleted=0 但父目录不可达导致"幽灵文件"（从所有列表消失、无法操作、仍占配额）
+	var ancestors []*model.File
+	cur := f
+	for cur.ParentID != 0 {
+		var p model.File
+		if err := tx.Where("id = ? AND user_id = ? AND is_deleted = 1", cur.ParentID, userID).First(&p).Error; err != nil {
+			break
+		}
+		ancestors = append(ancestors, &p)
+		cur = &p
+	}
+	for i := len(ancestors) - 1; i >= 0; i-- {
+		if err := restoreNode(tx, userID, ancestors[i]); err != nil {
+			return err
+		}
+	}
+	if f.Type == 0 {
+		var children []model.File
+		tx.Where("user_id = ? AND parent_id = ? AND is_deleted = 1", userID, f.ID).Find(&children)
+		for i := range children {
+			if err := restoreTreeWithTx(tx, userID, &children[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return restoreNode(tx, userID, f)
+}
+
+// restoreTree 恢复回收站文件/文件夹（事务包裹，M13）
+func restoreTree(userID uint, f *model.File) error {
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		return restoreTreeWithTx(tx, userID, f)
+	})
+}
+
+// purgeTreeWithTx 递归彻底删除文件/文件夹（物理删除）并扣减配额（事务内执行）
+func purgeTreeWithTx(tx *gorm.DB, userID uint, uname string, f *model.File) error {
+	// S1 修复：确认记录仍存在，避免对已被递归删除的节点再次处理导致配额重复扣减
+	var exist model.File
+	if err := tx.Where("id = ? AND user_id = ?", f.ID, userID).First(&exist).Error; err != nil {
+		return nil
+	}
 	// 递归删除子项
 	if f.Type == 0 {
 		var children []model.File
-		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 1", userID, f.ID).Find(&children)
+		tx.Where("user_id = ? AND parent_id = ? AND is_deleted = 1", userID, f.ID).Find(&children)
 		for i := range children {
-			if err := purgeTree(userID, uname, &children[i]); err != nil {
+			if err := purgeTreeWithTx(tx, userID, uname, &children[i]); err != nil {
 				return err
 			}
 		}
@@ -828,21 +1103,28 @@ func purgeTree(userID uint, uname string, f *model.File) error {
 	// （转送/共享等场景下多用户可能复用同一实体，需跨用户统计引用）
 	if f.Type == 1 && f.StoragePath != "" {
 		var refs int64
-		db.DB.Model(&model.File{}).
+		tx.Model(&model.File{}).
 			Where("hash = ? AND type = 1", f.Hash).
 			Count(&refs)
 		if refs <= 1 {
 			os.Remove(f.StoragePath)
 		}
-		db.DB.Model(&model.User{}).Where("id = ?", userID).
+		tx.Model(&model.User{}).Where("id = ?", userID).
 			UpdateColumn("quota_used", gorm.Expr("GREATEST(quota_used - ?, 0)", f.Size))
 	}
 	// 清理收藏与分享关联
-	db.DB.Where("file_id = ?", f.ID).Delete(&model.Favorite{})
-	db.DB.Where("file_id = ?", f.ID).Delete(&model.Share{})
-	if err := db.DB.Delete(f).Error; err != nil {
+	tx.Where("file_id = ?", f.ID).Delete(&model.Favorite{})
+	tx.Where("file_id = ?", f.ID).Delete(&model.Share{})
+	if err := tx.Delete(f).Error; err != nil {
 		return err
 	}
 	LogAction(userID, uname, "purge", fmt.Sprintf("彻底删除 %s", f.Name))
 	return nil
+}
+
+// purgeTree 彻底删除（事务包裹，整棵树原子更新，M13；存在性检查防重复扣减，S1）
+func purgeTree(userID uint, uname string, f *model.File) error {
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		return purgeTreeWithTx(tx, userID, uname, f)
+	})
 }

@@ -94,9 +94,8 @@ func CORS() gin.HandlerFunc {
 				break
 			}
 		}
-		if allow == "" && origin != "" && config.Cfg.CORSOrigins[0] != "*" {
-			allow = origin // 未匹配时按原样放行开发环境
-		}
+		// L12 修复：未匹配白名单的 Origin 不再按原样回显（原逻辑会把任意 Origin 放行并附带
+		// Access-Control-Allow-Credentials: true），避免任意站点获得跨域权限；allow 为空时下方不设置任何 CORS 头
 		if allow != "" {
 			c.Header("Access-Control-Allow-Origin", allow)
 			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")

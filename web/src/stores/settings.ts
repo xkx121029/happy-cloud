@@ -14,8 +14,8 @@ export interface SettingsState {
   pageSize: number
   /** 并行上传数 */
   uploadConcurrency: number
-  /** 记住我：登录页记住用户名密码 */
-  remember: { username: string; password: string; enabled: boolean }
+  /** 记住我：登录页记住用户名（M11 修复：移除明文密码字段） */
+  remember: { username: string; enabled: boolean }
   /** 是否已从后端加载 */
   loaded: boolean
 }
@@ -26,7 +26,7 @@ const DEFAULT_STATE: SettingsState = {
   defaultSort: 'name',
   pageSize: 50,
   uploadConcurrency: 3,
-  remember: { username: '', password: '', enabled: false },
+  remember: { username: '', enabled: false },
   loaded: false
 }
 
@@ -52,7 +52,16 @@ export function applyTheme(theme: 'light' | 'dark') {
 }
 
 export const useSettingsStore = defineStore('settings', {
-  state: (): SettingsState => ({ ...DEFAULT_STATE, ...readLS() }),
+  state: (): SettingsState => {
+    const ls = readLS()
+    // M11 修复：迁移旧数据，清除 localStorage 中已持久化的明文密码字段
+    const remember = ls.remember as ({ username?: string; password?: string; enabled?: boolean } | undefined)
+    if (remember && 'password' in remember) {
+      delete (remember as Record<string, unknown>).password
+      writeLS({ remember: { username: remember.username ?? '', enabled: remember.enabled ?? false } })
+    }
+    return { ...DEFAULT_STATE, ...ls }
+  },
   actions: {
     /** 从后端加载（懒加载：登录后再调一次） */
     async loadFromBackend() {
@@ -60,6 +69,11 @@ export const useSettingsStore = defineStore('settings', {
         const { settings } = await fetchUserSettings()
         if (settings) {
           const parsed = JSON.parse(settings) as Partial<SettingsState>
+          // M11 修复：从后端加载时同样剔除旧版本持久化的明文密码，防止回灌到本地
+          const remember = parsed.remember as ({ username?: string; password?: string; enabled?: boolean } | undefined)
+          if (remember && 'password' in remember) {
+            delete (remember as Record<string, unknown>).password
+          }
           Object.assign(this, parsed)
           writeLS(parsed)
           this.loaded = true

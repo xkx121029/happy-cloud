@@ -40,7 +40,12 @@ const previewKind = computed<{ type: '' | 'image' | 'video' | 'audio' | 'pdf' | 
 watch(
   () => [props.visible, props.file?.id] as const,
   async ([visible, fid]) => {
-    if (!visible || !fid) return
+    // M7 修复：弹窗关闭时也调用 reset() 释放 blob URL，避免每次打开-关闭泄漏内存
+    if (!visible) {
+      reset()
+      return
+    }
+    if (!fid) return
     reset()
     await loadPreview()
   }

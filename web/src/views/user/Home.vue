@@ -293,6 +293,8 @@ function startUploads(fileList: File[]) {
           uploadTasks.value = uploadTasks.value.filter((x) => x !== task)
           loadList()
           loadQuota()
+          // M6 修复：上传完成后同步刷新存储概览分类统计，保证与配额口径一致
+          loadStorage()
         }, 800)
       })
       .catch(() => {
@@ -624,6 +626,8 @@ onMounted(() => {
   window.addEventListener('contextmenu', hideCtx)
   loadList()
   loadQuota()
+  // M6 修复：首次进入页面即加载存储概览，避免 StorageCard 显示为空
+  loadStorage()
   loadNotifications()
   // 轮询未读通知数，用户在线时及时感知新消息
   notifyTimer = setInterval(async () => {

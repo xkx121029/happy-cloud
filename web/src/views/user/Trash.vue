@@ -135,7 +135,8 @@ onMounted(load)
       <div class="toolbar">
         <div class="toolbar-info">
           <span class="page-title">回收站</span>
-          <span class="shared-subtitle">共 {{ files.length }} 项，删除后 30 天内可恢复</span>
+          <!-- L9 修复：后端无 30 天自动清理机制，改为如实说明回收站仍占空间 -->
+          <span class="shared-subtitle">共 {{ files.length }} 项，回收站中的文件仍占用存储空间，可恢复或彻底删除以释放空间</span>
         </div>
         <div class="toolbar-right">
           <n-input v-model:value="keyword" placeholder="搜索回收站" clearable style="width: 200px" @keyup.enter="load">

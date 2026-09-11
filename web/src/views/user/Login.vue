@@ -35,10 +35,10 @@ onMounted(() => {
   if (route.query.no_admin === '1') {
     message.warning('该账号不是管理员，无权限访问管理后台')
   }
-  // 记住我：回填
+  // 记住我：回填（M11 修复：仅回填用户名，不再回填明文密码）
   if (settings.remember.enabled) {
     username.value = settings.remember.username
-    password.value = settings.remember.password
+    // password.value = settings.remember.password // 原实现：明文密码回填，已移除
   }
 })
 
@@ -50,8 +50,9 @@ async function onSubmit() {
   loading.value = true
   try {
     await store.login(username.value.trim(), password.value)
-    // 记住我
-    await settings.set('remember', { username: username.value.trim(), password: password.value, enabled: true })
+    // 记住我（M11 修复：不再保存明文密码，仅记住用户名）
+    // 原实现：await settings.set('remember', { username: username.value.trim(), password: password.value, enabled: true })
+    await settings.set('remember', { username: username.value.trim(), enabled: true })
     // 管理员彩蛋：admin 账号登录 → 直接跳管理后台
     let redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     if (adminMode.value && username.value.trim() === 'admin' && store.isAdmin) {

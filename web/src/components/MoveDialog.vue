@@ -26,7 +26,10 @@ async function loadFolders() {
   loading.value = true
   try {
     const data = await listFiles(currentId())
-    folders.value = toList(data).filter((f) => f.type === 0 && (!props.file || f.id !== props.file.id))
+    // L10 修复：批量移动时排除"本次选中的文件夹自身"，避免允许将文件夹移动到自身
+    const excludeIds = new Set(props.fileIds ?? [])
+    if (props.file) excludeIds.add(props.file.id)
+    folders.value = toList(data).filter((f) => f.type === 0 && !excludeIds.has(f.id))
   } catch {
     /* 拦截器已提示 */
   } finally {

@@ -3,7 +3,6 @@ package handler
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
 
@@ -79,7 +78,9 @@ func ListShared(c *gin.Context) {
 func DownloadShared(c *gin.Context) {
 	fid, _ := strconv.Atoi(c.Query("file_id"))
 	var f model.File
-	if err := db.DB.Where("id = ? AND is_shared = 1 AND type = 1", fid).First(&f).Error; err != nil {
+	// S3 修复：过滤回收站文件——软删除未重置 is_shared 时，若不加 is_deleted=0 过滤，
+	// 删除后的共享文件仍可被任何登录用户直连下载（ListShared 有过滤但直连绕过）
+	if err := db.DB.Where("id = ? AND is_shared = 1 AND type = 1 AND is_deleted = 0", fid).First(&f).Error; err != nil {
 		util.Fail(c, 404, "文件不存在或未共享")
 		return
 	}
@@ -87,6 +88,7 @@ func DownloadShared(c *gin.Context) {
 		util.Fail(c, 404, "文件实体缺失")
 		return
 	}
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", url.QueryEscape(f.Name)))
+	// L4 修复：RFC 5987 百分号编码（空格为 %20），避免部分浏览器文件名错误
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", rfc5987Encode(f.Name)))
 	c.File(f.StoragePath)
 }
