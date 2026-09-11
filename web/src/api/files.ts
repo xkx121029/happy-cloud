@@ -1,4 +1,4 @@
-import { httpGet, httpPost, httpUpload } from './request'
+import { httpGet, httpPost, httpUpload, request } from './request'
 import type { FileItem, PageData, QuotaInfo, SharedFileItem } from './types'
 
 export interface HashCheckResult {
@@ -12,6 +12,73 @@ export function listFiles(parentId: number, page = 1, pageSize = 1000) {
     page,
     page_size: pageSize
   })
+}
+
+/** 回收站列表 */
+export function listTrash(keyword = '', page = 1, pageSize = 100) {
+  return httpGet<PageData<FileItem>>('/files/trash', { keyword, page, page_size: pageSize })
+}
+
+/** 恢复回收站文件 */
+export function restoreFiles(fileIds: number[]) {
+  return httpPost<{ restored: number }>('/files/restore', { file_ids: fileIds })
+}
+
+/** 彻底删除（回收站内） */
+export function deletePermanent(fileIds: number[]) {
+  return httpPost<{ purged: number }>('/files/delete/permanent', { file_ids: fileIds })
+}
+
+/** 清空回收站 */
+export function clearTrash() {
+  return httpPost<{ purged: number }>('/files/trash/clear')
+}
+
+/** 全局搜索 */
+export function searchFiles(keyword: string, type = -1) {
+  return httpGet<FileItem[]>('/files/search', { keyword, type })
+}
+
+/** 最近文件 */
+export function recentFiles(limit = 50) {
+  return httpGet<FileItem[]>('/files/recent', { limit })
+}
+
+/** 我的收藏 */
+export function listFavorites() {
+  return httpGet<FileItem[]>('/files/favorites')
+}
+
+/** 收藏/取消收藏 */
+export function favoriteFile(fileId: number) {
+  return httpPost<{ favorited: boolean }>('/files/favorite', { file_id: fileId })
+}
+
+export function unfavoriteFile(fileId: number) {
+  return httpPost<{ favorited: boolean }>('/files/unfavorite', { file_id: fileId })
+}
+
+/** 批量移动 */
+export function batchMove(data: { file_ids: number[]; target_parent_id: number }) {
+  return httpPost<{ moved: number }>('/files/batch-move', data)
+}
+
+/** 预览文件：返回 blob（需鉴权），供 object URL 使用 */
+export async function fetchPreviewBlob(fileId: number): Promise<Blob> {
+  const res = await request.get(`/files/preview`, {
+    params: { file_id: fileId },
+    responseType: 'blob'
+  })
+  return res.data as Blob
+}
+
+/** 存储概览（配额 + 分类占用） */
+export function fetchStorageOverview() {
+  return httpGet<{
+    quota_max: number
+    quota_used: number
+    categories: { image: number; video: number; audio: number; doc: number; other: number }
+  }>('/files/overview')
 }
 
 export function mkdir(data: { parent_id: number; name: string }) {

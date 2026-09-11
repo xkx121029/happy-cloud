@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -40,7 +41,7 @@ func ListFiles(c *gin.Context) {
 		pageSize = 100
 	}
 	userID := uid(c)
-	query := db.DB.Where("user_id = ? AND parent_id = ?", userID, parentID)
+	query := db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, parentID)
 	var total int64
 	query.Model(&model.File{}).Count(&total)
 	var files []model.File
@@ -292,7 +293,7 @@ func Download(c *gin.Context) {
 	userID := uid(c)
 	fid, _ := strconv.Atoi(c.Query("file_id"))
 	var f model.File
-	if err := db.DB.Where("id = ? AND user_id = ?", fid, userID).First(&f).Error; err != nil {
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, userID).First(&f).Error; err != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
@@ -320,7 +321,7 @@ func Rename(c *gin.Context) {
 	}
 	userID := uid(c)
 	var f model.File
-	if err := db.DB.Where("id = ? AND user_id = ?", req.FileID, userID).First(&f).Error; err != nil {
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
@@ -349,7 +350,7 @@ func Move(c *gin.Context) {
 	}
 	userID := uid(c)
 	var f model.File
-	if err := db.DB.Where("id = ? AND user_id = ?", req.FileID, userID).First(&f).Error; err != nil {
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
@@ -375,7 +376,7 @@ func Move(c *gin.Context) {
 	util.OK(c, f)
 }
 
-// Delete 删除文件/文件夹（批量）
+// Delete 删除文件/文件夹（批量）：移入回收站（软删除），可恢复
 func Delete(c *gin.Context) {
 	var req struct {
 		FileIDs []uint `json:"file_ids" binding:"required"`
@@ -386,17 +387,318 @@ func Delete(c *gin.Context) {
 	}
 	userID := uid(c)
 	uname := username(c)
-	var removed int64
+	var moved int64
 	for _, fid := range req.FileIDs {
 		var f model.File
-		if err := db.DB.Where("id = ? AND user_id = ?", fid, userID).First(&f).Error; err != nil {
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, userID).First(&f).Error; err != nil {
 			continue
 		}
-		if err := deleteTree(userID, uname, &f); err == nil {
-			removed++
+		if err := moveToTrash(userID, uname, &f); err == nil {
+			moved++
 		}
 	}
-	util.OK(c, gin.H{"removed": removed})
+	util.OK(c, gin.H{"moved": moved})
+}
+
+// ListTrash 回收站文件列表，支持关键字搜索与分页
+func ListTrash(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 100
+	}
+	userID := uid(c)
+	query := db.DB.Where("user_id = ? AND is_deleted = 1", userID)
+	if kw := strings.TrimSpace(c.Query("keyword")); kw != "" {
+		query = query.Where("name LIKE ?", "%"+kw+"%")
+	}
+	var total int64
+	query.Model(&model.File{}).Count(&total)
+	var files []model.File
+	query.Order("updated_at DESC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&files)
+	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": files})
+}
+
+// Restore 恢复回收站文件/文件夹
+func Restore(c *gin.Context) {
+	var req struct {
+		FileIDs []uint `json:"file_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	var restored int64
+	for _, fid := range req.FileIDs {
+		var f model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 1", fid, userID).First(&f).Error; err != nil {
+			continue
+		}
+		if err := restoreTree(userID, &f); err == nil {
+			restored++
+		}
+	}
+	util.OK(c, gin.H{"restored": restored})
+}
+
+// DeletePermanent 彻底删除回收站文件/文件夹（物理删除）
+func DeletePermanent(c *gin.Context) {
+	var req struct {
+		FileIDs []uint `json:"file_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	uname := username(c)
+	var purged int64
+	for _, fid := range req.FileIDs {
+		var f model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 1", fid, userID).First(&f).Error; err != nil {
+			continue
+		}
+		if err := purgeTree(userID, uname, &f); err == nil {
+			purged++
+		}
+	}
+	util.OK(c, gin.H{"purged": purged})
+}
+
+// ClearTrash 清空回收站
+func ClearTrash(c *gin.Context) {
+	userID := uid(c)
+	uname := username(c)
+	var files []model.File
+	db.DB.Where("user_id = ? AND is_deleted = 1", userID).Find(&files)
+	var purged int64
+	for i := range files {
+		if err := purgeTree(userID, uname, &files[i]); err == nil {
+			purged++
+		}
+	}
+	util.OK(c, gin.H{"purged": purged})
+}
+
+// SearchFiles 全局搜索：关键字 + 类型筛选，返回最近 200 条
+func SearchFiles(c *gin.Context) {
+	kw := strings.TrimSpace(c.Query("keyword"))
+	if kw == "" {
+		util.Fail(c, 400, "请输入搜索关键字")
+		return
+	}
+	ftype, _ := strconv.Atoi(c.DefaultQuery("type", "-1"))
+	userID := uid(c)
+	query := db.DB.Where("user_id = ? AND is_deleted = 0 AND name LIKE ?", userID, "%"+kw+"%")
+	if ftype == 0 || ftype == 1 {
+		query = query.Where("type = ?", ftype)
+	}
+	var files []model.File
+	query.Order("type ASC, updated_at DESC").Limit(200).Find(&files)
+	util.OK(c, gin.H{"items": files})
+}
+
+// RecentFiles 最近文件（仅文件，按更新时间倒序）
+func RecentFiles(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	if limit < 1 || limit > 200 {
+		limit = 50
+	}
+	userID := uid(c)
+	var files []model.File
+	db.DB.Where("user_id = ? AND is_deleted = 0 AND type = 1", userID).
+		Order("updated_at DESC").Limit(limit).Find(&files)
+	util.OK(c, gin.H{"items": files})
+}
+
+// FavoriteFile 收藏/星标
+func FavoriteFile(c *gin.Context) {
+	var req struct {
+		FileID uint `json:"file_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	var f model.File
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
+		util.Fail(c, 404, "文件不存在")
+		return
+	}
+	var count int64
+	db.DB.Model(&model.Favorite{}).Where("user_id = ? AND file_id = ?", userID, req.FileID).Count(&count)
+	if count == 0 {
+		db.DB.Create(&model.Favorite{UserID: userID, FileID: req.FileID})
+	}
+	util.OK(c, gin.H{"favorited": true})
+}
+
+// UnfavoriteFile 取消收藏
+func UnfavoriteFile(c *gin.Context) {
+	var req struct {
+		FileID uint `json:"file_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	db.DB.Where("user_id = ? AND file_id = ?", userID, req.FileID).Delete(&model.Favorite{})
+	util.OK(c, gin.H{"favorited": false})
+}
+
+// ListFavorites 我的收藏
+func ListFavorites(c *gin.Context) {
+	userID := uid(c)
+	var favs []model.Favorite
+	db.DB.Where("user_id = ?", userID).Order("created_at DESC").Limit(500).Find(&favs)
+	fids := make([]uint, 0, len(favs))
+	for _, fv := range favs {
+		fids = append(fids, fv.FileID)
+	}
+	var files []model.File
+	if len(fids) > 0 {
+		db.DB.Where("id IN ? AND is_deleted = 0", fids).Find(&files)
+	}
+	// 按收藏时间排序保持前端展示顺序
+	order := make(map[uint]int)
+	for i, fv := range favs {
+		order[fv.FileID] = i
+	}
+	sort.Slice(files, func(i, j int) bool {
+		oi, oki := order[files[i].ID]
+		oj, okj := order[files[j].ID]
+		if oki && okj {
+			return oi < oj
+		}
+		return !oki && okj
+	})
+	util.OK(c, gin.H{"items": files})
+}
+
+// BatchMove 批量移动
+func BatchMove(c *gin.Context) {
+	var req struct {
+		FileIDs        []uint `json:"file_ids" binding:"required"`
+		TargetParentID uint   `json:"target_parent_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	var moved int64
+	for _, fid := range req.FileIDs {
+		var f model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, userID).First(&f).Error; err != nil {
+			continue
+		}
+		if req.TargetParentID == f.ID {
+			continue
+		}
+		if err := checkTarget(userID, req.TargetParentID, fid); err != nil {
+			continue
+		}
+		if err := checkNameDup(userID, req.TargetParentID, f.Name); err != nil {
+			continue
+		}
+		f.ParentID = req.TargetParentID
+		if err := db.DB.Save(&f).Error; err != nil {
+			continue
+		}
+		moved++
+	}
+	util.OK(c, gin.H{"moved": moved})
+}
+
+// Preview 在线预览：以内联方式返回文件流，附带正确的 Content-Type
+func Preview(c *gin.Context) {
+	userID := uid(c)
+	fid, _ := strconv.Atoi(c.Query("file_id"))
+	var f model.File
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, userID).First(&f).Error; err != nil {
+		util.Fail(c, 404, "文件不存在")
+		return
+	}
+	if f.Type != 1 {
+		util.Fail(c, 400, "文件夹不可预览")
+		return
+	}
+	if _, err := os.Stat(f.StoragePath); err != nil {
+		util.Fail(c, 404, "文件实体缺失")
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(f.Name))
+	ctype := ""
+	switch ext {
+	case ".png":
+		ctype = "image/png"
+	case ".jpg", ".jpeg":
+		ctype = "image/jpeg"
+	case ".gif":
+		ctype = "image/gif"
+	case ".webp":
+		ctype = "image/webp"
+	case ".svg":
+		ctype = "image/svg+xml"
+	case ".bmp":
+		ctype = "image/bmp"
+	case ".mp4", ".webm", ".ogg", ".mov", ".m4v":
+		ctype = "video/mp4"
+	case ".mp3", ".wav", ".flac", ".m4a", ".aac":
+		ctype = "audio/mpeg"
+	case ".pdf":
+		ctype = "application/pdf"
+	case ".txt", ".md", ".log", ".json", ".yaml", ".yml", ".csv":
+		ctype = "text/plain; charset=utf-8"
+	case ".html", ".htm":
+		ctype = "text/html; charset=utf-8"
+	default:
+		ctype = "application/octet-stream"
+	}
+	c.Header("Content-Type", ctype)
+	c.Header("Content-Disposition", "inline")
+	c.File(f.StoragePath)
+}
+
+// StorageOverview 存储概览：配额 + 按类别统计占用，用于前端可视化
+func StorageOverview(c *gin.Context) {
+	userID := uid(c)
+	var u model.User
+	if err := db.DB.First(&u, userID).Error; err != nil {
+		util.Fail(c, 404, "用户不存在")
+		return
+	}
+	var files []model.File
+	db.DB.Where("user_id = ? AND type = 1 AND is_deleted = 0", userID).Find(&files)
+	var image, video, audio, doc, other int64
+	for _, f := range files {
+		ext := strings.ToLower(filepath.Ext(f.Name))
+		switch ext {
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif":
+			image += f.Size
+		case ".mp4", ".webm", ".ogg", ".mov", ".m4v", ".avi", ".mkv", ".flv":
+			video += f.Size
+		case ".mp3", ".wav", ".flac", ".m4a", ".aac", ".opus":
+			audio += f.Size
+		case ".pdf", ".txt", ".md", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv", ".json", ".yaml", ".yml", ".log":
+			doc += f.Size
+		default:
+			other += f.Size
+		}
+	}
+	util.OK(c, gin.H{
+		"quota_max":  u.QuotaMax,
+		"quota_used": u.QuotaUsed,
+		"categories": gin.H{"image": image, "video": video, "audio": audio, "doc": doc, "other": other},
+	})
 }
 
 // Quota 空间用量
@@ -472,14 +774,52 @@ func checkTarget(userID, targetParentID, selfID uint) error {
 	return nil
 }
 
-// deleteTree 递归删除文件/文件夹，返回是否成功
-func deleteTree(userID uint, uname string, f *model.File) error {
+// moveToTrash 递归将文件/文件夹标记为回收站（软删除，不扣配额、不删磁盘）
+func moveToTrash(userID uint, uname string, f *model.File) error {
+	if f.Type == 0 {
+		var children []model.File
+		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, f.ID).Find(&children)
+		for i := range children {
+			if err := moveToTrash(userID, uname, &children[i]); err != nil {
+				return err
+			}
+		}
+	}
+	// 回收站文件不再计为正常占用（配额将在彻底删除时统一扣减）
+	f.IsDeleted = 1
+	if err := db.DB.Save(f).Error; err != nil {
+		return err
+	}
+	LogAction(userID, uname, "delete", fmt.Sprintf("移入回收站 %s", f.Name))
+	return nil
+}
+
+// restoreTree 递归恢复回收站文件/文件夹
+func restoreTree(userID uint, f *model.File) error {
+	if f.Type == 0 {
+		var children []model.File
+		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 1", userID, f.ID).Find(&children)
+		for i := range children {
+			if err := restoreTree(userID, &children[i]); err != nil {
+				return err
+			}
+		}
+	}
+	f.IsDeleted = 0
+	if err := db.DB.Save(f).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+// purgeTree 递归彻底删除文件/文件夹（物理删除），并扣减配额
+func purgeTree(userID uint, uname string, f *model.File) error {
 	// 递归删除子项
 	if f.Type == 0 {
 		var children []model.File
-		db.DB.Where("user_id = ? AND parent_id = ?", userID, f.ID).Find(&children)
+		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 1", userID, f.ID).Find(&children)
 		for i := range children {
-			if err := deleteTree(userID, uname, &children[i]); err != nil {
+			if err := purgeTree(userID, uname, &children[i]); err != nil {
 				return err
 			}
 		}
@@ -497,11 +837,12 @@ func deleteTree(userID uint, uname string, f *model.File) error {
 		db.DB.Model(&model.User{}).Where("id = ?", userID).
 			UpdateColumn("quota_used", gorm.Expr("GREATEST(quota_used - ?, 0)", f.Size))
 	}
-	// 删除关联分享
+	// 清理收藏与分享关联
+	db.DB.Where("file_id = ?", f.ID).Delete(&model.Favorite{})
 	db.DB.Where("file_id = ?", f.ID).Delete(&model.Share{})
 	if err := db.DB.Delete(f).Error; err != nil {
 		return err
 	}
-	LogAction(userID, uname, "delete", fmt.Sprintf("删除 %s", f.Name))
+	LogAction(userID, uname, "purge", fmt.Sprintf("彻底删除 %s", f.Name))
 	return nil
 }

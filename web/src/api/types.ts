@@ -17,6 +17,23 @@ export interface FileItem {
   size: number
   hash: string
   is_shared?: 0 | 1
+  is_deleted?: 0 | 1
+  created_at: string
+  updated_at?: string
+}
+
+/** 我的分享条目 */
+export interface MyShareItem {
+  id: number
+  token: string
+  file_id: number
+  file_name: string
+  file_size: number
+  file_type: 0 | 1
+  expire_at: string | null
+  views: number
+  password_required: boolean
+  is_expired: boolean
   created_at: string
 }
 

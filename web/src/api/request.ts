@@ -111,3 +111,4 @@ export async function httpUpload<T>(url: string, form: FormData, onProgress?: (p
 }
 
 export default request
+export { request }

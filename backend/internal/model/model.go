@@ -27,8 +27,17 @@ type File struct {
 	Hash        string    `gorm:"size:64;index" json:"hash"`
 	StoragePath string    `gorm:"size:512" json:"-"`
 	IsShared    int       `gorm:"default:0;index" json:"is_shared"` // 0 私有 1 共享到公共目录
+	IsDeleted   int       `gorm:"default:0;index" json:"is_deleted"` // 0 正常 1 回收站
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// Favorite 收藏/星标表
+type Favorite struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index" json:"-"`
+	FileID    uint      `gorm:"index" json:"file_id"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Share 分享表

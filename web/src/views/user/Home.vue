@@ -6,27 +6,49 @@ import {
   CloudUploadOutline,
   CreateOutline,
   DownloadOutline,
+  EyeOutline,
   FolderOpenOutline,
+  FolderOutline,
   GlobeOutline,
   GridOutline,
+  HeartOutline,
   ListOutline,
   LogOutOutline,
   NotificationsOutline,
+  PieChartOutline,
   RefreshOutline,
   SearchOutline,
   ShareSocialOutline,
+  Star,
+  StarOutline,
+  TimeOutline,
+  TrashBinOutline,
   TrashOutline
 } from '@vicons/ionicons5'
-import { deleteFiles, fetchQuota, listFiles, mkdir, renameFile, toggleShared } from '@/api/files'
+import {
+  deleteFiles,
+  favoriteFile,
+  fetchQuota,
+  fetchStorageOverview,
+  listFiles,
+  listFavorites,
+  mkdir,
+  recentFiles,
+  renameFile,
+  toggleShared,
+  unfavoriteFile
+} from '@/api/files'
 import { acceptTransfer, rejectTransfer } from '@/api/transfer'
 import { listNotifications, readNotification, unreadCount } from '@/api/notification'
 import { changeMyPassword } from '@/api/account'
 import { toList, type FileItem, type NotificationItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
+import PreviewDialog from '@/components/PreviewDialog.vue'
 import SendDialog from '@/components/SendDialog.vue'
 import SettingsDrawer from '@/components/SettingsDrawer.vue'
 import ShareDialog from '@/components/ShareDialog.vue'
+import StorageCard, { type StorageOverviewData } from '@/components/StorageCard.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/notify'
@@ -40,6 +62,15 @@ const settings = useSettingsStore()
 
 /* ---------- 设置抽屉 ---------- */
 const settingsVisible = ref(false)
+
+/* ---------- 侧边导航与视图 ---------- */
+type NavKey = 'drive' | 'recent' | 'favorite'
+const activeNav = ref<NavKey>('drive')
+const navItems: { key: NavKey; label: string; icon: any }[] = [
+  { key: 'drive', label: '我的网盘', icon: FolderOutline },
+  { key: 'recent', label: '最近文件', icon: TimeOutline },
+  { key: 'favorite', label: '我的收藏', icon: StarOutline }
+]
 
 /* ---------- 目录与文件列表 ---------- */
 const pathStack = ref<{ id: number; name: string }[]>([])
@@ -57,8 +88,18 @@ const quotaPercent = computed(() => {
   return Math.min(100, Math.round((quota.value.used / quota.value.max) * 100))
 })
 
+const storageData = ref<StorageOverviewData | null>(null)
+
 const viewMode = ref<'grid' | 'list'>(settings.defaultView)
 const searchQuery = ref('')
+
+const emptyMeta = computed(() => {
+  if (activeNav.value === 'recent')
+    return { icon: TimeOutline, title: '暂无最近文件', desc: '最近访问或修改的文件会显示在这里' }
+  if (activeNav.value === 'favorite')
+    return { icon: StarOutline, title: '还没有收藏', desc: '点击文件卡片右上角的星标即可快速收藏' }
+  return { icon: CloudUploadOutline, title: '此目录为空', desc: '拖拽文件到此处，或点击右上角「上传文件」' }
+})
 
 const filteredFiles = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
@@ -66,11 +107,70 @@ const filteredFiles = computed(() => {
   return files.value.filter((f) => f.name.toLowerCase().includes(q))
 })
 
+/* ---------- 批量选择 ---------- */
+const selected = ref<Set<number>>(new Set())
+const selectedIds = computed(() => Array.from(selected.value))
+const selectedCount = computed(() => selected.value.size)
+const allChecked = computed(() => filteredFiles.value.length > 0 && selected.value.size === filteredFiles.value.length)
+
+function toggleAll() {
+  if (allChecked.value) selected.value.clear()
+  else selected.value = new Set(filteredFiles.value.map((f) => f.id))
+}
+function toggleOne(id: number) {
+  const next = new Set(selected.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selected.value = next
+}
+
+/* ---------- 收藏状态 ---------- */
+const favSet = ref<Set<number>>(new Set())
+
+async function loadFavorites() {
+  try {
+    const items = toList(await listFavorites())
+    favSet.value = new Set(items.map((f) => f.id))
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
+function isFav(f: FileItem): boolean {
+  return favSet.value.has(f.id)
+}
+
+async function onToggleFavorite(f: FileItem) {
+  try {
+    if (favSet.value.has(f.id)) {
+      await unfavoriteFile(f.id)
+      favSet.value.delete(f.id)
+      message.success('已取消收藏')
+    } else {
+      await favoriteFile(f.id)
+      favSet.value.add(f.id)
+      message.success('已收藏')
+    }
+    // 若正在"我的收藏"视图，取消收藏后即时移除
+    if (activeNav.value === 'favorite' && !favSet.value.has(f.id)) {
+      files.value = files.value.filter((x) => x.id !== f.id)
+    }
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
 async function loadList() {
   loading.value = true
   try {
-    const data = await listFiles(currentParentId.value)
-    files.value = toList(data)
+    if (activeNav.value === 'recent') {
+      files.value = toList(await recentFiles(200))
+    } else if (activeNav.value === 'favorite') {
+      files.value = toList(await listFavorites())
+    } else {
+      const data = await listFiles(currentParentId.value)
+      files.value = toList(data)
+    }
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -87,8 +187,25 @@ async function loadQuota() {
   }
 }
 
+async function loadStorage() {
+  try {
+    storageData.value = await fetchStorageOverview()
+  } catch {
+    /* ignore */
+  }
+}
+
+function switchNav(k: NavKey) {
+  if (k === activeNav.value) return
+  activeNav.value = k
+  pathStack.value = []
+  searchQuery.value = ''
+  selected.value.clear()
+  loadList()
+}
+
 function enterFolder(f: FileItem) {
-  if (f.type !== 0) return
+  if (f.type !== 0 || activeNav.value !== 'drive') return
   pathStack.value.push({ id: f.id, name: f.name })
   loadList()
 }
@@ -209,6 +326,17 @@ function hideCtx() {
 
 function onOpen(f: FileItem) {
   if (f.type === 0) enterFolder(f)
+  else openPreview(f)
+}
+
+/* ---------- 在线预览 ---------- */
+const previewVisible = ref(false)
+const previewFile = ref<FileItem | null>(null)
+
+function openPreview(f: FileItem) {
+  if (f.type !== 1) return
+  previewFile.value = f
+  previewVisible.value = true
 }
 
 async function onDownload(f: FileItem) {
@@ -271,20 +399,69 @@ function openShare(f: FileItem) {
 function onDelete(f: FileItem) {
   dialog.warning({
     title: '删除确认',
-    content: `确定要删除“${f.name}”吗？该操作不可恢复。`,
+    content: `确定要删除“${f.name}”吗？删除后将移入回收站，可在回收站中恢复。`,
     positiveText: '删除',
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
         await deleteFiles([f.id])
-        message.success('删除成功')
+        message.success('已移入回收站')
         loadList()
         loadQuota()
+        loadStorage()
       } catch {
         /* ignore */
       }
     }
   })
+}
+
+/* ---------- 批量操作 ---------- */
+const batchMoveVisible = ref(false)
+const batchMoveTarget = ref<FileItem | null>(null)
+
+function openBatchMove() {
+  batchMoveTarget.value = null
+  batchMoveVisible.value = true
+}
+
+async function onBatchDownload() {
+  const targets = filteredFiles.value.filter((f) => selected.value.has(f.id) && f.type === 1)
+  if (!targets.length) return message.warning('所选项目中无文件可下载')
+  for (const f of targets) {
+    try {
+      await downloadFile(f.id, f.name)
+    } catch {
+      /* 拦截器已提示 */
+    }
+  }
+  message.success(`已开始下载 ${targets.length} 个文件`)
+}
+
+function onBatchDelete() {
+  if (!selectedIds.value.length) return
+  dialog.warning({
+    title: '批量删除',
+    content: `确定要删除选中的 ${selectedIds.value.length} 项吗？删除后将移入回收站。`,
+    positiveText: '删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      try {
+        await deleteFiles(selectedIds.value)
+        message.success('已移入回收站')
+        selected.value.clear()
+        loadList()
+        loadQuota()
+        loadStorage()
+      } catch {
+        /* ignore */
+      }
+    }
+  })
+}
+
+function cancelSelect() {
+  selected.value.clear()
 }
 
 /* ---------- 用户菜单 ---------- */
@@ -488,7 +665,7 @@ onBeforeUnmount(() => {
             上传文件
           </n-button>
           <n-button @click="mkdirVisible = true">
-            <template #icon><n-icon><FolderAddOutline /></n-icon></template>
+            <template #icon><n-icon><FolderOpenOutline /></n-icon></template>
             新建文件夹
           </n-button>
           <n-dropdown :options="userOptions" @select="onUserSelect">
@@ -547,6 +724,37 @@ onBeforeUnmount(() => {
     </n-drawer>
 
     <main class="home-main" @dragenter.prevent="dragging = true" @dragover.prevent @dragleave="dragging = false" @drop.prevent="onDrop">
+      <div class="home-body">
+        <aside class="sidebar">
+          <div class="sidebar-nav">
+            <div v-for="item in navItems" :key="item.key" class="sidebar-item" :class="{ active: activeNav === item.key }" @click="switchNav(item.key)">
+              <n-icon :component="item.icon" :size="18" />
+              <span>{{ item.label }}</span>
+            </div>
+          </div>
+          <div class="sidebar-storage"><StorageCard :data="storageData" /></div>
+        </aside>
+
+        <section class="content-area">
+          <div v-if="selectedCount > 0" class="batch-bar">
+            <span class="batch-count">已选择 {{ selectedCount }} 项</span>
+            <div class="batch-actions">
+              <n-button size="small" @click="openBatchMove">
+                <template #icon><n-icon><FolderOpenOutline /></n-icon></template>
+                移动
+              </n-button>
+              <n-button size="small" @click="onBatchDownload">
+                <template #icon><n-icon><DownloadOutline /></n-icon></template>
+                下载
+              </n-button>
+              <n-button size="small" type="error" @click="onBatchDelete">
+                <template #icon><n-icon><TrashOutline /></n-icon></template>
+                删除
+              </n-button>
+              <n-button size="small" quaternary @click="cancelSelect">取消选择</n-button>
+            </div>
+          </div>
+
       <div class="toolbar">
         <n-breadcrumb>
           <n-breadcrumb-item v-for="(p, i) in pathStack" :key="p.id" @click="goTo(i)">{{ p.name }}</n-breadcrumb-item>
@@ -582,11 +790,22 @@ onBeforeUnmount(() => {
               <n-progress type="line" :percentage="t.progress" :height="6" :border-radius="3" :show-indicator="false" :status="taskProgressStatus(t)" />
             </div>
           </div>
-          <div v-for="f in filteredFiles" :key="f.id" class="file-card" @dblclick="onOpen(f)" @contextmenu.prevent="showCtx($event, f)">
+          <div v-for="f in filteredFiles" :key="f.id" class="file-card" :class="{ selected: selected.has(f.id) }" @click="onOpen(f)" @contextmenu.prevent="showCtx($event, f)">
+            <div class="file-card-select" @click.stop>
+              <n-checkbox :checked="selected.has(f.id)" @click.stop="toggleOne(f.id)" />
+            </div>
+            <div class="file-card-fav" @click.stop>
+              <n-button quaternary circle size="tiny" :title="isFav(f) ? '取消收藏' : '收藏'" @click="onToggleFavorite(f)">
+                <template #icon><n-icon :color="isFav(f) ? '#f59e0b' : undefined"><Star v-if="isFav(f)" /><StarOutline v-else /></n-icon></template>
+              </n-button>
+            </div>
             <div class="file-card-icon"><FileIcon :file="f" :size="42" /></div>
             <div class="file-card-name" :title="f.name">{{ f.name }}</div>
             <div class="file-card-meta">{{ f.type === 0 ? '文件夹' : formatSize(f.size) }}</div>
             <div class="file-card-actions" @click.stop>
+              <n-button quaternary circle size="tiny" title="预览" :disabled="f.type === 0" @click="openPreview(f)">
+                <template #icon><n-icon><EyeOutline /></n-icon></template>
+              </n-button>
               <n-button quaternary circle size="tiny" title="下载" :disabled="f.type === 0" @click="onDownload(f)">
                 <template #icon><n-icon><DownloadOutline /></n-icon></template>
               </n-button>
@@ -594,7 +813,7 @@ onBeforeUnmount(() => {
                 <template #icon><n-icon><CreateOutline /></n-icon></template>
               </n-button>
               <n-button quaternary circle size="tiny" title="移动" @click="openMove(f)">
-                <template #icon><n-icon><FolderAddOutline /></n-icon></template>
+                <template #icon><n-icon><FolderOpenOutline /></n-icon></template>
               </n-button>
               <n-button quaternary circle size="tiny" title="分享" @click="openShare(f)">
                 <template #icon><n-icon><ShareSocialOutline /></n-icon></template>
@@ -656,7 +875,11 @@ onBeforeUnmount(() => {
           </table>
         </div>
 
-        <n-empty v-if="!loading && filteredFiles.length === 0 && uploadTasks.length === 0" description="暂无文件，可拖拽文件到此处上传" style="padding: 60px 0" />
+        <div v-if="!loading && filteredFiles.length === 0 && uploadTasks.length === 0" class="empty-wrap">
+          <div class="empty-icon"><n-icon :size="52" :component="emptyMeta.icon" /></div>
+          <div class="empty-title">{{ emptyMeta.title }}</div>
+          <div class="empty-desc">{{ emptyMeta.desc }}</div>
+        </div>
       </n-spin>
 
       <div v-if="dragging" class="drop-mask">
@@ -664,6 +887,8 @@ onBeforeUnmount(() => {
           <n-icon :size="40"><CloudUploadOutline /></n-icon>
           <p>释放鼠标上传文件</p>
         </div>
+      </div>
+        </section>
       </div>
     </main>
 
@@ -704,6 +929,8 @@ onBeforeUnmount(() => {
 
     <ShareDialog :visible="shareVisible" :file="shareTarget" @update:visible="shareVisible = $event" />
     <MoveDialog :visible="moveVisible" :file="moveTarget" @update:visible="moveVisible = $event" @moved="loadList" />
+    <MoveDialog :visible="batchMoveVisible" :file="null" :file-ids="selectedIds" @update:visible="batchMoveVisible = $event" @moved="loadList" />
+    <PreviewDialog :visible="previewVisible" :file="previewFile" @update:visible="previewVisible = $event" />
     <SendDialog :visible="sendVisible" :file="sendTarget" @update:visible="sendVisible = $event" />
     <SettingsDrawer :visible="settingsVisible" @update:visible="settingsVisible = $event" />
 

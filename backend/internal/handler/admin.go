@@ -81,7 +81,7 @@ func DeleteUser(c *gin.Context) {
 	var roots []model.File
 	db.DB.Where("user_id = ? AND parent_id = 0", u.ID).Find(&roots)
 	for i := range roots {
-		deleteTree(u.ID, u.Username, &roots[i])
+		purgeTree(u.ID, u.Username, &roots[i])
 	}
 	db.DB.Where("user_id = ?", u.ID).Delete(&model.Share{})
 	db.DB.Delete(&u)
@@ -131,7 +131,7 @@ func AdminDeleteFile(c *gin.Context) {
 		return
 	}
 	ownerID := f.UserID
-	deleteTree(ownerID, f.Name, &f)
+	purgeTree(ownerID, f.Name, &f)
 	adminLog(c, "delete_file", fmt.Sprintf("强制删除文件 #%d %s", id, f.Name))
 	util.OK(c, gin.H{"deleted": id})
 }

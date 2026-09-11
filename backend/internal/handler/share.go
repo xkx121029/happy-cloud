@@ -188,3 +188,123 @@ func isDescendant(userID, fileID, ancestorID uint) bool {
 	}
 	return false
 }
+
+// ListMyShares 我的分享列表（分页）
+func ListMyShares(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "100"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 500 {
+		pageSize = 100
+	}
+	userID := uid(c)
+	var total int64
+	db.DB.Model(&model.Share{}).Where("user_id = ?", userID).Count(&total)
+	var shares []model.Share
+	db.DB.Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&shares)
+	type shareItem struct {
+		ID            uint       `json:"id"`
+		Token         string     `json:"token"`
+		FileID        uint       `json:"file_id"`
+		FileName      string     `json:"file_name"`
+		FileSize      int64      `json:"file_size"`
+		FileType      int        `json:"file_type"`
+		ExpireAt      *time.Time `json:"expire_at"`
+		Views         int        `json:"views"`
+		PasswordReq   bool       `json:"password_required"`
+		IsExpired     bool       `json:"is_expired"`
+		CreatedAt     time.Time  `json:"created_at"`
+	}
+	items := make([]shareItem, 0, len(shares))
+	now := time.Now()
+	for _, s := range shares {
+		var f model.File
+		fileType := 1
+		fileName := ""
+		var fileSize int64
+		db.DB.First(&f, s.FileID)
+		if f.ID != 0 {
+			fileType = f.Type
+			fileName = f.Name
+			fileSize = f.Size
+		}
+		isExpired := s.ExpireAt != nil && now.After(*s.ExpireAt)
+		items = append(items, shareItem{
+			ID:          s.ID,
+			Token:       s.Token,
+			FileID:      s.FileID,
+			FileName:    fileName,
+			FileSize:    fileSize,
+			FileType:    fileType,
+			ExpireAt:    s.ExpireAt,
+			Views:       s.Views,
+			PasswordReq: s.Password != "",
+			IsExpired:   isExpired,
+			CreatedAt:   s.CreatedAt,
+		})
+	}
+	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": items})
+}
+
+// CancelShare 取消分享
+func CancelShare(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if id == 0 {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	if err := db.DB.Where("id = ? AND user_id = ?", id, userID).Delete(&model.Share{}).Error; err != nil {
+		util.Fail(c, 500, "取消分享失败")
+		return
+	}
+	util.OK(c, gin.H{"cancelled": true})
+}
+
+// UpdateShare 更新分享（有效期/密码）；password 传空串表示清除密码，expire_at 传 null 表示永久
+func UpdateShare(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if id == 0 {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	var req struct {
+		Password *string    `json:"password"`
+		ExpireAt *time.Time `json:"expire_at"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	var s model.Share
+	if err := db.DB.Where("id = ? AND user_id = ?", id, userID).First(&s).Error; err != nil {
+		util.Fail(c, 404, "分享不存在")
+		return
+	}
+	if req.Password != nil {
+		if *req.Password == "" {
+			s.Password = ""
+		} else {
+			hash, err := bcrypt.GenerateFromPassword([]byte(*req.Password), bcrypt.DefaultCost)
+			if err != nil {
+				util.Fail(c, 500, "服务内部错误")
+				return
+			}
+			s.Password = string(hash)
+		}
+	}
+	if req.ExpireAt != nil {
+		s.ExpireAt = req.ExpireAt
+	}
+	if err := db.DB.Save(&s).Error; err != nil {
+		util.Fail(c, 500, "更新分享失败")
+		return
+	}
+	util.OK(c, gin.H{"updated": true})
+}

@@ -10,6 +10,8 @@ const router = createRouter({
     { path: '/', name: 'home', component: () => import('@/views/user/Home.vue') },
     { path: '/shared', name: 'shared', component: () => import('@/views/Shared.vue') },
     { path: '/notifications', name: 'notifications', component: () => import('@/views/Notifications.vue') },
+    { path: '/trash', name: 'trash', component: () => import('@/views/user/Trash.vue') },
+    { path: '/shares', name: 'shares', component: () => import('@/views/user/Shares.vue') },
     {
       path: '/admin',
       component: () => import('@/views/admin/AdminLayout.vue'),

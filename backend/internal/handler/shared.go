@@ -26,7 +26,7 @@ func ToggleShared(c *gin.Context) {
 	}
 	userID := uid(c)
 	var f model.File
-	if err := db.DB.Where("id = ? AND user_id = ?", req.FileID, userID).First(&f).Error; err != nil {
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
@@ -53,7 +53,7 @@ func ToggleShared(c *gin.Context) {
 // ListShared 公共共享目录：所有登录用户可见的共享文件列表
 func ListShared(c *gin.Context) {
 	var files []model.File
-	if err := db.DB.Where("is_shared = 1 AND type = 1").
+	if err := db.DB.Where("is_shared = 1 AND type = 1 AND is_deleted = 0").
 		Order("created_at DESC").Find(&files).Error; err != nil {
 		util.Fail(c, 500, "查询失败")
 		return

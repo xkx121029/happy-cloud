@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ChevronForwardOutline, FolderOutline } from '@vicons/ionicons5'
-import { listFiles, moveFile } from '@/api/files'
+import { batchMove, listFiles, moveFile } from '@/api/files'
 import { toList, type FileItem } from '@/api/types'
 import { message } from '@/utils/notify'
 
-const props = defineProps<{ file: FileItem | null; visible: boolean }>()
+// file：单文件移动；fileIds：批量移动（传入时优先使用批量接口）
+const props = defineProps<{ file: FileItem | null; visible: boolean; fileIds?: number[] }>()
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'moved'): void
@@ -15,6 +16,7 @@ const stack = ref<{ id: number; name: string }[]>([])
 const folders = ref<FileItem[]>([])
 const loading = ref(false)
 const moving = ref(false)
+const isBatch = () => !!props.fileIds && props.fileIds.length > 0
 
 function currentId(): number {
   return stack.value.length ? stack.value[stack.value.length - 1].id : 0
@@ -57,8 +59,26 @@ function close() {
 }
 
 async function onMove() {
-  if (!props.file) return
   const target = currentId()
+  if (isBatch()) {
+    if (props.fileIds?.includes(target)) {
+      message.warning('不能移动到目标文件夹自身')
+      return
+    }
+    moving.value = true
+    try {
+      await batchMove({ file_ids: props.fileIds!, target_parent_id: target })
+      message.success('移动成功')
+      close()
+      emit('moved')
+    } catch {
+      /* 拦截器已提示 */
+    } finally {
+      moving.value = false
+    }
+    return
+  }
+  if (!props.file) return
   if (props.file.type === 0 && target === props.file.id) {
     message.warning('不能将文件夹移动到自身')
     return
@@ -78,8 +98,8 @@ async function onMove() {
 </script>
 
 <template>
-  <n-modal :show="visible" preset="card" title="移动文件" style="width: 520px" :bordered="false" @update:show="(v: boolean) => emit('update:visible', v)">
-    <div v-if="file">
+  <n-modal :show="visible" preset="card" :title="isBatch() ? '批量移动' : '移动文件'" style="width: 520px" :bordered="false" @update:show="(v: boolean) => emit('update:visible', v)">
+    <div v-if="file || isBatch()">
       <div class="move-location">
         <span class="move-label">移动到：</span>
         <span class="move-path">
