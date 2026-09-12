@@ -7,6 +7,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.happycloud.android.AppContainer
 import com.happycloud.android.data.ApiException
+import com.happycloud.android.data.Network
 import com.happycloud.android.data.safeApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,7 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
     data class UiState(
         val username: String = "",
         val password: String = "",
+        val serverUrl: String = Network.baseUrl,
         val loading: Boolean = false,
         val error: String? = null,
     )
@@ -28,6 +30,7 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
 
     fun onUsernameChange(v: String) = _state.update { it.copy(username = v, error = null) }
     fun onPasswordChange(v: String) = _state.update { it.copy(password = v, error = null) }
+    fun onServerUrlChange(v: String) = _state.update { it.copy(serverUrl = v, error = null) }
 
     fun login(onSuccess: () -> Unit) {
         val s = _state.value
@@ -38,6 +41,10 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             try {
+                // 应用并保存自定义服务端地址
+                val url = s.serverUrl.trim().ifBlank { Network.DEFAULT_BASE_URL }
+                Network.setBaseUrl(url)
+                container.tokenStore.saveServerUrl(url)
                 val data = safeApi {
                     container.api.login(
                         mapOf(

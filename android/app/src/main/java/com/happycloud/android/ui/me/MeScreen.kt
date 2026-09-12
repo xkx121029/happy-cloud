@@ -190,7 +190,7 @@ fun MeScreen(
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = Network.BASE_URL,
+                            text = Network.baseUrl,
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurface,
                         )

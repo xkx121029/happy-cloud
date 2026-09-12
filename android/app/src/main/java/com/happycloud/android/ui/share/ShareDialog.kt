@@ -61,7 +61,7 @@ fun ShareDialog(
     var error by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<ShareResult?>(null) }
 
-    val fullLink = result?.let { Network.BASE_URL.trimEnd('/') + it.url }
+    val fullLink = result?.let { Network.baseUrl.trimEnd('/') + it.url }
 
     fun copyLink() {
         fullLink?.let {

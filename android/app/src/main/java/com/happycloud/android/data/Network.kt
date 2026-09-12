@@ -7,11 +7,16 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
-/** 网络层：Retrofit + OkHttp + JWT 拦截器 */
+/** 网络层：Retrofit + OkHttp + JWT 拦截器，支持运行时切换服务端地址 */
 object Network {
 
-    /** 后端地址（模拟器访问宿主机用 10.0.2.2，真机改为局域网 IP） */
-    const val BASE_URL = "http://10.0.2.2:8080/"
+    /** 默认后端地址（模拟器访问宿主机用 10.0.2.2，真机可改局域网 IP） */
+    const val DEFAULT_BASE_URL = "http://10.0.2.2:8080/"
+
+    /** 当前服务端地址（以 / 结尾），登录页可自定义 */
+    @Volatile
+    var baseUrl: String = DEFAULT_BASE_URL
+        private set
 
     /** 由 AppContainer 注入：返回当前 JWT，用于所有请求头 */
     @Volatile
@@ -39,15 +44,29 @@ object Network {
             .build()
     }
 
-    private val retrofit: Retrofit by lazy {
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create(GsonBuilder().create()))
-            .build()
+    @Volatile
+    private var apiInstance: ApiService? = null
+
+    /** 切换服务端地址并重建 Retrofit；登录/设置服务器地址时调用 */
+    @Synchronized
+    fun setBaseUrl(url: String) {
+        val trimmed = url.trim().trimEnd('/')
+        val normalized = if (trimmed.isEmpty()) DEFAULT_BASE_URL else "$trimmed/"
+        baseUrl = normalized
+        apiInstance = null
     }
 
-    val api: ApiService by lazy { retrofit.create(ApiService::class.java) }
+    /** 懒创建 Retrofit；地址变更后自动重建 */
+    val api: ApiService
+        get() = synchronized(this) {
+            apiInstance?.let { return it }
+            val retrofit = Retrofit.Builder()
+                .baseUrl(baseUrl)
+                .client(okHttpClient)
+                .addConverterFactory(GsonConverterFactory.create(GsonBuilder().create()))
+                .build()
+            retrofit.create(ApiService::class.java).also { apiInstance = it }
+        }
 }
 
 /** 业务异常：code 非 0 或网络错误（已转中文提示） */

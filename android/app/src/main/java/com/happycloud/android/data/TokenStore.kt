@@ -16,6 +16,7 @@ class TokenStore(private val context: Context) {
     companion object {
         private val KEY_TOKEN = stringPreferencesKey("token")
         private val KEY_USERNAME = stringPreferencesKey("username")
+        private val KEY_SERVER_URL = stringPreferencesKey("server_url")
     }
 
     /** 内存缓存，TokenInterceptor 同步读取 */
@@ -24,10 +25,13 @@ class TokenStore(private val context: Context) {
 
     val tokenFlow: Flow<String?> = context.dataStore.data.map { it[KEY_TOKEN] }
     val usernameFlow: Flow<String?> = context.dataStore.data.map { it[KEY_USERNAME] }
+    val serverUrlFlow: Flow<String?> = context.dataStore.data.map { it[KEY_SERVER_URL] }
 
     suspend fun getToken(): String? = context.dataStore.data.first()[KEY_TOKEN]
 
     suspend fun getUsername(): String? = context.dataStore.data.first()[KEY_USERNAME]
+
+    suspend fun getServerUrl(): String? = context.dataStore.data.first()[KEY_SERVER_URL]
 
     suspend fun save(token: String, username: String) {
         cachedToken = token
@@ -35,6 +39,11 @@ class TokenStore(private val context: Context) {
             it[KEY_TOKEN] = token
             it[KEY_USERNAME] = username
         }
+    }
+
+    /** 保存自定义服务端地址 */
+    suspend fun saveServerUrl(url: String) {
+        context.dataStore.edit { it[KEY_SERVER_URL] = url }
     }
 
     suspend fun clear() {

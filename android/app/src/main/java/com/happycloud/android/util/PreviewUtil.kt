@@ -30,5 +30,5 @@ object PreviewUtil {
 
     /** 预览流式地址（需在请求头携带 Authorization） */
     fun previewUrl(fileId: Long): String =
-        Network.BASE_URL.trimEnd('/') + "/api/files/preview?file_id=$fileId"
+        Network.baseUrl.trimEnd('/') + "/api/files/preview?file_id=$fileId"
 }

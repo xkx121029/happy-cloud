@@ -76,7 +76,7 @@ fun SharesScreen(
     var cancelTarget by remember { mutableStateOf<MyShareItem?>(null) }
 
     fun copyLink(share: MyShareItem) {
-        val link = Network.BASE_URL.trimEnd('/') + "/share/" + share.token
+        val link = Network.baseUrl.trimEnd('/') + "/share/" + share.token
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("分享链接", link))
         scope.launch { snackbarHostState.showSnackbar("链接已复制") }

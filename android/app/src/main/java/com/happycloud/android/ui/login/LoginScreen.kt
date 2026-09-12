@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
@@ -69,6 +70,22 @@ fun LoginScreen(
         )
         Spacer(Modifier.height(40.dp))
 
+        // 服务器地址（可自定义）
+        OutlinedTextField(
+            value = state.serverUrl,
+            onValueChange = viewModel::onServerUrlChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("服务器地址") },
+            leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null) },
+            supportingText = { Text("例如 http://192.168.1.100:8080") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Next,
+            ),
+            shape = ButtonShape,
+        )
+        Spacer(Modifier.height(14.dp))
         OutlinedTextField(
             value = state.username,
             onValueChange = viewModel::onUsernameChange,

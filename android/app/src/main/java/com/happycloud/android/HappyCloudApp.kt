@@ -13,16 +13,17 @@ import kotlinx.coroutines.launch
 /** 手动依赖注入容器 */
 class AppContainer(context: Context) {
     val tokenStore = TokenStore(context.applicationContext)
-    val api = Network.api
+    val api get() = Network.api
 
     init {
         Network.tokenProvider = { tokenStore.cachedToken }
     }
 
-    /** 启动时从 DataStore 恢复登录态到内存缓存 */
+    /** 启动时从 DataStore 恢复登录态与服务端地址 */
     fun restoreSession(scope: CoroutineScope) {
         scope.launch {
             tokenStore.cachedToken = tokenStore.getToken()
+            tokenStore.getServerUrl()?.takeIf { it.isNotBlank() }?.let { Network.setBaseUrl(it) }
         }
     }
 }
