@@ -37,6 +37,12 @@ import com.happycloud.android.ui.login.LoginViewModel
 import com.happycloud.android.ui.login.loginViewModelFactory
 import com.happycloud.android.ui.me.MeScreen
 import com.happycloud.android.ui.register.RegisterScreen
+import com.happycloud.android.ui.shares.SharesScreen
+import com.happycloud.android.ui.shares.SharesViewModel
+import com.happycloud.android.ui.shares.sharesViewModelFactory
+import com.happycloud.android.ui.trash.TrashScreen
+import com.happycloud.android.ui.trash.TrashViewModel
+import com.happycloud.android.ui.trash.trashViewModelFactory
 import com.happycloud.android.ui.upload.UploadScreen
 import kotlinx.coroutines.flow.first
 
@@ -44,6 +50,8 @@ object Routes {
     const val LOGIN = "login"
     const val REGISTER = "register"
     const val MAIN = "main"
+    const val TRASH = "trash"
+    const val SHARES = "shares"
 }
 
 @Composable
@@ -78,6 +86,22 @@ fun AppNavHost() {
             MainScreen(
                 container = container,
                 onLogout = { navController.navigateToLogin() },
+                onOpenTrash = { navController.navigate(Routes.TRASH) },
+                onOpenShares = { navController.navigate(Routes.SHARES) },
+            )
+        }
+        composable(Routes.TRASH) {
+            val vm: TrashViewModel = viewModel(factory = trashViewModelFactory(container))
+            TrashScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(Routes.SHARES) {
+            val vm: SharesViewModel = viewModel(factory = sharesViewModelFactory(container))
+            SharesScreen(
+                viewModel = vm,
+                onBack = { navController.popBackStack() },
             )
         }
     }
@@ -88,6 +112,8 @@ fun AppNavHost() {
 private fun MainScreen(
     container: AppContainer,
     onLogout: () -> Unit,
+    onOpenTrash: () -> Unit,
+    onOpenShares: () -> Unit,
 ) {
     val filesViewModel: FilesViewModel = viewModel(factory = filesViewModelFactory(container))
     var tab by rememberSaveable { mutableStateOf(0) }
@@ -111,6 +137,8 @@ private fun MainScreen(
                     onLogout = {
                         onLogout()
                     },
+                    onOpenTrash = onOpenTrash,
+                    onOpenShares = onOpenShares,
                 )
             }
         }

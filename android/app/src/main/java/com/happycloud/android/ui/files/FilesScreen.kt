@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,12 +26,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Button
@@ -61,14 +66,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.happycloud.android.AppContainer
 import com.happycloud.android.data.FileItem
+import com.happycloud.android.data.StorageOverview
+import com.happycloud.android.ui.preview.PreviewDialog
 import com.happycloud.android.ui.share.ShareDialog
 import com.happycloud.android.ui.theme.ButtonShape
 import com.happycloud.android.util.FormatUtil
+import com.happycloud.android.util.PreviewUtil
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -88,6 +97,7 @@ fun FilesScreen(
     var showMove by remember { mutableStateOf<FileItem?>(null) }
     var showDelete by remember { mutableStateOf<FileItem?>(null) }
     var showShare by remember { mutableStateOf<FileItem?>(null) }
+    var previewFile by remember { mutableStateOf<FileItem?>(null) }
 
     // SAF 选择文件上传
     val openDoc = rememberLauncherForActivityResult(
@@ -122,11 +132,16 @@ fun FilesScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             Column {
-                // 面包屑 + 视图切换 + 新建文件夹
+                // 来源切换：全部 / 最近 / 收藏
+                SourceSwitcher(
+                    source = state.source,
+                    onSwitch = viewModel::switchSource,
+                )
+                // 面包屑 + 新建文件夹 + 视图切换
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 8.dp, end = 4.dp, top = 4.dp),
+                        .padding(start = 8.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     LazyRow(modifier = Modifier.weight(1f)) {
@@ -160,6 +175,10 @@ fun FilesScreen(
                 }
                 // 空间用量条
                 QuotaBar(used = state.quotaUsed, max = state.quotaMax)
+                // 存储概览卡片（全部文件视图展示分类占用）
+                if (state.source == FileSource.ALL && state.overview != null) {
+                    OverviewCard(overview = state.overview!!)
+                }
             }
         },
         floatingActionButton = {
@@ -189,6 +208,7 @@ fun FilesScreen(
                     }
                     state.items.isEmpty() -> {
                         EmptyPlaceholder(
+                            source = state.source,
                             onUpload = { openDoc.launch(arrayOf("*/*")) },
                         )
                     }
@@ -202,7 +222,9 @@ fun FilesScreen(
                             items(state.items, key = { it.id }) { file ->
                                 FileGridCard(
                                     file = file,
-                                    onClick = { onFileClick(file, viewModel, openDoc) },
+                                    isFavorite = state.favoriteIds.contains(file.id),
+                                    onToggleFavorite = { viewModel.toggleFavorite(file) },
+                                    onClick = { onFileClick(file, viewModel) { previewFile = it } },
                                     onLongClick = { menuTarget = file },
                                 )
                             }
@@ -216,7 +238,9 @@ fun FilesScreen(
                             items(state.items, key = { it.id }) { file ->
                                 FileListRow(
                                     file = file,
-                                    onClick = { onFileClick(file, viewModel, openDoc) },
+                                    isFavorite = state.favoriteIds.contains(file.id),
+                                    onToggleFavorite = { viewModel.toggleFavorite(file) },
+                                    onClick = { onFileClick(file, viewModel) { previewFile = it } },
                                     onLongClick = { menuTarget = file },
                                 )
                             }
@@ -230,6 +254,15 @@ fun FilesScreen(
     // 长按菜单
     menuTarget?.let { target ->
         DropdownMenu(expanded = true, onDismissRequest = { menuTarget = null }) {
+            if (PreviewUtil.canInlinePreview(target.name) || PreviewUtil.canPlay(target.name)) {
+                DropdownMenuItem(
+                    text = { Text(if (PreviewUtil.canPlay(target.name)) "播放" else "预览") },
+                    onClick = {
+                        menuTarget = null
+                        onFileClick(target, viewModel) { previewFile = it }
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text("重命名") },
                 onClick = {
@@ -296,19 +329,54 @@ fun FilesScreen(
             onDismiss = { showShare = null },
         )
     }
+    previewFile?.let { target ->
+        PreviewDialog(
+            container = container,
+            file = target,
+            onDismiss = { previewFile = null },
+        )
+    }
 }
 
-/** 点击条目：文件夹进入，文件下载 */
+/** 点击条目：文件夹进入；图片/文本内联预览；音视频系统播放；其余下载 */
 private fun onFileClick(
     file: FileItem,
     viewModel: FilesViewModel,
-    openDoc: androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, Uri?>,
+    onPreview: (FileItem) -> Unit,
 ) {
-    if (file.isFolder) viewModel.enterFolder(file)
-    else viewModel.download(file)
+    when {
+        file.isFolder -> viewModel.enterFolder(file)
+        PreviewUtil.canInlinePreview(file.name) -> onPreview(file)
+        PreviewUtil.canPlay(file.name) -> viewModel.play(file)
+        else -> viewModel.download(file)
+    }
 }
 
 // ---------- 顶部组件 ----------
+
+@Composable
+private fun SourceSwitcher(source: FileSource, onSwitch: (FileSource) -> Unit) {
+    val labels = listOf(
+        FileSource.ALL to "全部",
+        FileSource.RECENT to "最近",
+        FileSource.FAVORITE to "收藏",
+    )
+    SingleChoiceSegmentedButtonRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        labels.forEachIndexed { index, (value, label) ->
+            SegmentedButton(
+                selected = source == value,
+                onClick = { onSwitch(value) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = labels.size),
+            ) {
+                Text(label, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
 
 @Composable
 private fun ViewModeSwitch(gridMode: Boolean, onToggle: (Boolean) -> Unit) {
@@ -368,12 +436,126 @@ private fun QuotaBar(used: Long, max: Long) {
     }
 }
 
+/** 存储概览：按分类展示占用条 + 图例 */
+@Composable
+private fun OverviewCard(overview: StorageOverview) {
+    val cat = overview.categories
+    val total = cat.total
+    val segments = listOf(
+        "图片" to cat.image to CategoryColor.image,
+        "视频" to cat.video to CategoryColor.video,
+        "音频" to cat.audio to CategoryColor.audio,
+        "文档" to cat.doc to CategoryColor.doc,
+        "其他" to cat.other to CategoryColor.other,
+    )
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "存储概览",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = FormatUtil.bytes(overview.quotaUsed),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            // 分段用量条
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp),
+            ) {
+                if (total <= 0) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .background(
+                                MaterialTheme.colorScheme.surfaceContainerHighest,
+                                RoundedCornerShape(5.dp),
+                            ),
+                    )
+                } else {
+                    segments.forEach { (pair, color) ->
+                        val (_, value) = pair
+                        val frac = value.toFloat() / total
+                        if (frac <= 0f) return@forEach
+                        Box(
+                            Modifier
+                                .weight(frac)
+                                .fillMaxHeight()
+                                .padding(horizontal = 1.dp)
+                                .background(color, RoundedCornerShape(5.dp)),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            // 图例
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                segments.forEach { (pair, color) ->
+                    val (label, value) = pair
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .background(color, RoundedCornerShape(4.dp)),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = FormatUtil.bytes(value),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 分类颜色（Material 3 调和色系） */
+private object CategoryColor {
+    val image = Color(0xFF8B5000)   // 主色：琥珀
+    val video = Color(0xFF5B6233)   // 三级：橄榄
+    val audio = Color(0xFF705A42)   // 二级：陶土
+    val doc = Color(0xFF00696E)     // 青绿
+    val other = Color(0xFF857468)   // 轮廓灰
+}
+
 // ---------- 列表/网格条目 ----------
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FileGridCard(
     file: FileItem,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -388,17 +570,35 @@ private fun FileGridCard(
             modifier = Modifier.padding(14.dp),
             horizontalAlignment = Alignment.Start,
         ) {
-            Icon(
-                imageVector = if (file.isFolder) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
-                contentDescription = null,
-                modifier = Modifier.size(34.dp),
-                tint = if (file.isFolder) {
-                    MaterialTheme.colorScheme.primary
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (file.isFolder) Icons.Filled.Folder else Icons.Filled.InsertDriveFile,
+                    contentDescription = null,
+                    modifier = Modifier.size(30.dp),
+                    tint = if (file.isFolder) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.tertiary
+                    },
+                )
+                if (!file.isFolder) {
+                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = if (isFavorite) "取消收藏" else "收藏",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (isFavorite) Color(0xFFF5B301) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 } else {
-                    MaterialTheme.colorScheme.tertiary
-                },
-            )
-            Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.size(28.dp))
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = file.name,
                 style = MaterialTheme.typography.titleSmall,
@@ -421,6 +621,8 @@ private fun FileGridCard(
 @Composable
 private fun FileListRow(
     file: FileItem,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
@@ -465,6 +667,16 @@ private fun FileListRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (!file.isFolder) {
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = if (isFavorite) "取消收藏" else "收藏",
+                        modifier = Modifier.size(22.dp),
+                        tint = if (isFavorite) Color(0xFFF5B301) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             IconButton(onClick = onLongClick) {
                 Icon(
                     Icons.Filled.MoreVert,
@@ -501,25 +713,35 @@ private fun ErrorPlaceholder(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun EmptyPlaceholder(onUpload: () -> Unit) {
+private fun EmptyPlaceholder(source: FileSource, onUpload: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "这里空空如也",
+                text = when (source) {
+                    FileSource.ALL -> "这里空空如也"
+                    FileSource.RECENT -> "暂无最近文件"
+                    FileSource.FAVORITE -> "还没有收藏"
+                },
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "上传第一个文件，或新建文件夹开始整理",
+                text = when (source) {
+                    FileSource.ALL -> "上传第一个文件，或新建文件夹开始整理"
+                    FileSource.RECENT -> "访问过的文件会出现在这里"
+                    FileSource.FAVORITE -> "点击文件上的星标即可收藏"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = onUpload, shape = ButtonShape) {
-                Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("上传文件")
+            if (source == FileSource.ALL) {
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = onUpload, shape = ButtonShape) {
+                    Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("上传文件")
+                }
             }
         }
     }
