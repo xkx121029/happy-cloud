@@ -15,6 +15,7 @@ import { NIcon } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { changeMyPassword } from '@/api/account'
 import { message } from '@/utils/notify'
+import { InformationCircleOutline } from '@vicons/ionicons5'
 
 const store = useUserStore()
 const route = useRoute()
@@ -30,6 +31,7 @@ const menuOptions: MenuOption[] = [
   { label: '系统监控', key: '/admin/monitor', icon: renderIcon(SpeedometerOutline) },
   { label: '用户管理', key: '/admin/users', icon: renderIcon(PeopleOutline) },
   { label: '文件管理', key: '/admin/files', icon: renderIcon(FolderOpenOutline) },
+  { label: '存储索引', key: '/admin/storage', icon: renderIcon(InformationCircleOutline) },
   { label: '操作日志', key: '/admin/logs', icon: renderIcon(ListOutline) }
 ]
 
@@ -43,6 +45,7 @@ const pageTitles: Record<string, string> = {
   '/admin/monitor': '系统监控',
   '/admin/users': '用户管理',
   '/admin/files': '文件管理',
+  '/admin/storage': '存储索引',
   '/admin/logs': '操作日志'
 }
 const pageTitle = computed(() => pageTitles[route.path] ?? '管理后台')

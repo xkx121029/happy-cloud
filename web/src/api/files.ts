@@ -1,5 +1,5 @@
 import { httpGet, httpPost, httpUpload, request } from './request'
-import type { FileItem, PageData, QuotaInfo, SharedFileItem } from './types'
+import type { FileDetail, FileItem, PageData, QuotaInfo, SharedFileItem } from './types'
 
 export interface HashCheckResult {
   exists: boolean
@@ -131,4 +131,18 @@ export function toggleShared(data: { file_id: number; shared: boolean }) {
 /** 公共共享目录列表 */
 export function listShared() {
   return httpGet<SharedFileItem[]>('/files/shared/list')
+}
+
+/** 文件详情：引用数、去重标识、实体路径等 */
+export function fileDetail(fileId: number) {
+  return httpGet<FileDetail>('/files/detail', { file_id: fileId })
+}
+
+/** 断点续传查询：分片已上传列表 + 实体是否已在站 */
+export function uploadStatus(data: { hash: string; name: string; size: number; parent_id: number }) {
+  return httpGet<{
+    exists: boolean
+    size: number
+    uploaded: number[]
+  }>('/files/upload/status', data)
 }

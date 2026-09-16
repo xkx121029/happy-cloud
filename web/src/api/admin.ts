@@ -1,5 +1,25 @@
-import { httpDelete, httpGet, httpPatch } from './request'
-import type { AdminFileItem, AdminLog, AdminStats, PageData, UserInfo } from './types'
+import { httpDelete, httpGet, httpPatch, httpPost } from './request'
+import type { AdminFileItem, AdminLog, AdminStats, DedupStats, PageData, UserInfo } from './types'
+
+export interface BlobItem {
+  hash: string
+  size: number
+  ref_count: number
+  billed_user_id: number
+  billed_username: string
+  created_at: string
+  on_disk: boolean
+}
+
+export interface BlobRefItem {
+  file_id: number
+  name: string
+  user_id: number
+  username: string
+  size: number
+  is_deleted: number
+  created_at: string
+}
 
 export function listUsers(params: { page: number; page_size: number; keyword?: string }) {
   return httpGet<PageData<UserInfo>>('/admin/users', params)
@@ -27,4 +47,20 @@ export function fetchStats() {
 
 export function listLogs(params: { page: number; page_size: number }) {
   return httpGet<PageData<AdminLog>>('/admin/logs', params)
+}
+
+export function fetchStorageIndex() {
+  return httpGet<DedupStats>('/admin/storage/index')
+}
+
+export function listBlobs(params: { page: number; page_size: number; keyword?: string }) {
+  return httpGet<PageData<BlobItem>>('/admin/blobs', params)
+}
+
+export function fetchBlobRefs(hash: string) {
+  return httpGet<{ hash: string; refs: BlobRefItem[] }>(`/admin/blobs/${encodeURIComponent(hash)}/refs`)
+}
+
+export function verifyStorage(data: { apply: boolean; gc_orphans: boolean }) {
+  return httpPost<import('./types').PageData<unknown>>('/admin/storage/verify', data)
 }

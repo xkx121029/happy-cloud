@@ -9,6 +9,7 @@ import (
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/handler"
 	"happy-cloud/backend/internal/middleware"
+	"happy-cloud/backend/internal/p2p"
 	"happy-cloud/backend/internal/util"
 )
 
@@ -65,6 +66,8 @@ func main() {
 		files.POST("/shared/toggle", handler.ToggleShared)
 		files.GET("/shared/list", handler.ListShared)
 		files.GET("/shared/download", handler.DownloadShared)
+		files.GET("/detail", handler.FileDetail)
+		files.GET("/upload/status", handler.UploadStatus)
 
 		transfer := api.Group("/transfer", middleware.Auth())
 		transfer.GET("/users", handler.SearchUsers)
@@ -79,13 +82,11 @@ func main() {
 		notify.GET("/unread", handler.UnreadNotifications)
 
 		share := api.Group("/share")
-		share.POST("/create", middleware.Auth(), handler.CreateShare)
+		share.POST("/create", middleware.Auth(), handler.Share)
 		share.GET("/:token", handler.GetShare)
-		share.POST("/:token/verify", handler.VerifyShare)
 		share.GET("/:token/download", handler.DownloadShare)
 		share.GET("/mine/list", middleware.Auth(), handler.ListMyShares)
-		share.DELETE("/mine/:id", middleware.Auth(), handler.CancelShare)
-		share.PUT("/mine/:id", middleware.Auth(), handler.UpdateShare)
+		share.DELETE("/mine/:id", middleware.Auth(), handler.DeleteShare)
 
 		admin := api.Group("/admin", middleware.Auth(), middleware.Admin())
 		admin.GET("/users", handler.ListUsers)
@@ -95,7 +96,16 @@ func main() {
 		admin.DELETE("/files/:id", handler.AdminDeleteFile)
 		admin.GET("/stats", handler.Stats)
 		admin.GET("/logs", handler.ListLogs)
+		admin.GET("/storage/index", handler.AdminStorageIndex)
+		admin.GET("/blobs", handler.AdminListBlobs)
+		admin.GET("/blobs/:hash/refs", handler.AdminBlobRefs)
+		admin.POST("/storage/verify", handler.AdminStorageVerify)
 	}
+
+	// P2P 打洞配置下发（客户端读取 ws/ICE 后发起 WebRTC 协商）
+	p2pSvc := p2p.NewService(r)
+	p2p := api.Group("/p2p")
+	p2p.GET("/config", middleware.Auth(), p2pSvc.Config)
 
 	// 运行时 API 清单：机器可读，供各端客户端动态发现所有已注册接口
 	// L7 修复：要求登录后才能查看接口清单，避免未授权暴露全部接口信息
@@ -109,6 +119,9 @@ func main() {
 		}
 		util.OK(c, items)
 	})
+
+	// 启动内置 STUN 与 host 信令协商（受 P2P_ENABLED 控制）
+	p2pSvc.Start()
 
 	log.Printf("Happy-Cloud backend 启动于 :%s", config.Cfg.ServerPort)
 	if err := r.Run(":" + config.Cfg.ServerPort); err != nil {

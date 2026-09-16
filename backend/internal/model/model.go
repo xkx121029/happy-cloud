@@ -34,6 +34,19 @@ type File struct {
 	UpdatedAt   time.Time `gorm:"index:idx_user_type_del_updated,priority:4" json:"updated_at"`
 }
 
+// Blob 全局内容寻址实体：全站同一 SHA256 只保留一份物理文件，
+// 多个 File 索引（可跨用户、含回收站）共享同一实体。
+// RefCount 是"实体回收"的权威依据（归零即删除物理文件），
+// BilledUserID 是"去重后计费"的归属用户（首个引用者计费，索引消失时自动转移）。
+type Blob struct {
+	Hash         string    `gorm:"size:64;primaryKey" json:"hash"`
+	Size         int64     `gorm:"default:0" json:"size"`
+	RefCount     int64     `gorm:"default:0;index" json:"ref_count"`      // 引用它的 File 索引数
+	BilledUserID uint      `gorm:"default:0;index" json:"billed_user_id"` // 该实体占用的配额归属用户，0=无人计费
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
 // Favorite 收藏/星标表
 // L3 修复：增加 (user_id, file_id) 复合唯一索引，配合 FirstOrCreate 防止并发收藏产生重复记录
 type Favorite struct {

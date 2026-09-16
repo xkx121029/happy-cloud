@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.happycloud.android.data.Network
+import com.happycloud.android.data.P2PManager
 import com.happycloud.android.data.TokenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,9 +15,11 @@ import kotlinx.coroutines.launch
 class AppContainer(context: Context) {
     val tokenStore = TokenStore(context.applicationContext)
     val api get() = Network.api
+    val p2p = P2PManager(context.applicationContext)
 
     init {
         Network.tokenProvider = { tokenStore.cachedToken }
+        p2p.tokenProvider = { tokenStore.cachedToken }
     }
 
     /** 启动时从 DataStore 恢复登录态与服务端地址 */

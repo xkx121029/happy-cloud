@@ -1,4 +1,7 @@
-import { checkHash, mergeChunks, uploadChunk, uploadDirect } from '@/api/files'
+import { checkHash, mergeChunks, uploadChunk, uploadDirect, uploadStatus } from '@/api/files'
+import type { FileItem } from '@/api/types'
+import { useSettingsStore } from '@/stores/settings'
+import { useP2P } from '@/p2p'
 
 export const CHUNK_SIZE = 10 * 1024 * 1024
 export const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024
@@ -47,7 +50,7 @@ const SHA256_H0 = [
   0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
 ]
 
-/** 纯 JS SHA-256 实现（crypto.subtle 不可用时的降级方案） */
+/** 纯 JS SHA256 实现（crypto.subtle 不可用时的降级方案） */
 function sha256Fallback(data: Uint8Array): string {
   const bitLenHi = Math.floor(data.length / 0x20000000)
   const bitLenLo = (data.length << 3) >>> 0
@@ -113,12 +116,13 @@ async function runConcurrent(total: number, limit: number, task: (i: number) => 
 }
 
 /**
- * 上传单个文件：
+ * 上传单个文件（断点续传 + 并发可配 + 内容去重）：
  * 1. SHA256 秒传校验（exists=true 直接成功）
  * 2. 小于等于 100MB 直接上传
- * 3. 大于 100MB 分片（每片 10MB）3 并发上传后合并
+ * 3. 大于 100MB 分片：先查 UploadStatus 跳过已上传分片，按 settings.uploadConcurrency 并发，失败后合并
+ * 返回服务端落库后的文件项，供调用方立即渲染为真实文件卡片。
  */
-export async function uploadFile(file: File, parentId: number, hooks: UploadHooks): Promise<void> {
+export async function uploadFile(file: File, parentId: number, hooks: UploadHooks): Promise<FileItem | null> {
   hooks.onStatus('hashing')
   hooks.onProgress(0)
   const hash = await sha256(file)
@@ -127,7 +131,16 @@ export async function uploadFile(file: File, parentId: number, hooks: UploadHook
   if (check.exists) {
     hooks.onStatus('done')
     hooks.onProgress(100)
-    return
+    // 秒传：后端只回 file_id，其余字段用本地文件信息补齐
+    return {
+      id: check.file_id ?? 0,
+      name: file.name,
+      type: 1,
+      size: file.size,
+      parent_id: parentId,
+      hash,
+      created_at: new Date().toISOString()
+    }
   }
 
   if (file.size <= LARGE_FILE_THRESHOLD) {
@@ -135,18 +148,57 @@ export async function uploadFile(file: File, parentId: number, hooks: UploadHook
     const form = new FormData()
     form.append('file', file)
     form.append('parent_id', String(parentId))
-    await uploadDirect(form, (p) => hooks.onProgress(p))
+    const item = await uploadDirect(form, (p) => hooks.onProgress(p))
     hooks.onStatus('done')
     hooks.onProgress(100)
-    return
+    return item
   }
 
   const total = Math.ceil(file.size / CHUNK_SIZE)
+  const settings = useSettingsStore()
+  const concurrency = Math.max(1, Math.min(settings.uploadConcurrency, total))
+
+  // P2P 开启时优先走 WebRTC 隧道分片上传；失败自动降级 HTTP 分片
+  let p2pFinished = false
+  if (settings.p2pEnabled) {
+    p2pFinished = await uploadViaP2P(file, hash, total, hooks)
+    if (!p2pFinished) {
+      hooks.onProgress(0)
+    }
+  }
+  if (p2pFinished) {
+    hooks.onStatus('merging')
+    const merged = await mergeChunks({ hash, name: file.name, size: file.size, parent_id: parentId, chunk_total: total })
+    hooks.onStatus('done')
+    hooks.onProgress(100)
+    return merged
+  }
+
+  // 断点续传：查询服务端已接收的分片，跳过已完成的部分
+  let uploaded: number[] = []
+  try {
+    const status = await uploadStatus({ hash, name: file.name, size: file.size, parent_id: parentId })
+    if (status.exists) {
+      hooks.onStatus('merging')
+      const merged = await mergeChunks({ hash, name: file.name, size: file.size, parent_id: parentId, chunk_total: total })
+      hooks.onStatus('done')
+      hooks.onProgress(100)
+      return merged
+    }
+    uploaded = status.uploaded ?? []
+  } catch {
+    /* 服务端未接入续传时静默降级 */
+  }
+
+  const pending = Array.from({ length: total }, (_, i) => i).filter((i) => !uploaded.includes(i))
   const finished = new Array<boolean>(total).fill(false)
-  let finishedCount = 0
+  for (const i of uploaded) finished[i] = true
+  let finishedCount = uploaded.length
 
   hooks.onStatus('uploading')
-  await runConcurrent(total, 3, async (i) => {
+
+  await runConcurrent(pending.length, concurrency, async (pi) => {
+    const i = pending[pi]
     const start = i * CHUNK_SIZE
     const end = Math.min(start + CHUNK_SIZE, file.size)
     const slice = file.slice(start, end)
@@ -166,7 +218,35 @@ export async function uploadFile(file: File, parentId: number, hooks: UploadHook
   })
 
   hooks.onStatus('merging')
-  await mergeChunks({ hash, name: file.name, size: file.size, parent_id: parentId, chunk_total: total })
+  const merged = await mergeChunks({ hash, name: file.name, size: file.size, parent_id: parentId, chunk_total: total })
   hooks.onStatus('done')
   hooks.onProgress(100)
+  return merged
+}
+
+/** 大文件经隧道分片上传；成功返回 true，失败返回 false（由调用方降级 HTTP） */
+async function uploadViaP2P(file: File, hash: string, total: number, hooks: UploadHooks): Promise<boolean> {
+  const t = await useP2P().get()
+  if (!t) return false
+  // 进度必须在这里自己数：之前借用 HTTP 路径的计数器（恒为 0），
+  // 导致 P2P 上传时进度条一直停在 1/total 直到最后才跳到 100%。
+  let done = 0
+  const settings = useSettingsStore()
+  const concurrency = Math.max(1, Math.min(settings.uploadConcurrency, total))
+  try {
+    await runConcurrent(total, concurrency, async (i) => {
+      const start = i * CHUNK_SIZE
+      const end = Math.min(start + CHUNK_SIZE, file.size)
+      const bin = new Uint8Array(await file.slice(start, end).arrayBuffer())
+      const id = (Math.random() * 0xffffff) | 0
+      await t.uploadChunk(id, hash, i, bin)
+      done++
+      hooks.onProgress(Math.min(99, Math.round((done / total) * 100)))
+    })
+    return true
+  } catch {
+    return false
+  } finally {
+    hooks.onStatus('uploading')
+  }
 }

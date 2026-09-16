@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -34,7 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.happycloud.android.AppContainer
-import com.happycloud.android.ui.theme.ButtonShape
+import com.happycloud.android.ui.components.EmptyState
 import com.happycloud.android.util.FormatUtil
 import kotlinx.coroutines.launch
 
@@ -54,6 +54,7 @@ fun UploadScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp),
     ) {
         Spacer(Modifier.height(20.dp))
@@ -70,29 +71,14 @@ fun UploadScreen(
         Spacer(Modifier.height(16.dp))
 
         if (tasks.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Filled.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.outline,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "暂无上传任务",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "在「文件」页点击上传按钮开始",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    Button(onClick = onOpenFiles, shape = ButtonShape) { Text("去上传文件") }
-                }
+            Box(Modifier.weight(1f)) {
+                EmptyState(
+                    icon = Icons.Filled.Schedule,
+                    title = "暂无上传任务",
+                    subtitle = "在「文件」页点击上传按钮开始",
+                    actionLabel = "去上传文件",
+                    onAction = onOpenFiles,
+                )
             }
         } else {
             if (finished.isNotEmpty()) {
@@ -109,10 +95,10 @@ fun UploadScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(running, key = { it.id }) { task ->
+                items(running) { task ->
                     RunningTaskCard(task)
                 }
-                items(finished, key = { it.id }) { task ->
+                items(finished) { task ->
                     FinishedTaskCard(task)
                 }
             }
@@ -125,7 +111,8 @@ private fun RunningTaskCard(task: UploadManager.Task) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -183,7 +170,8 @@ private fun FinishedTaskCard(task: UploadManager.Task) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -194,7 +182,7 @@ private fun FinishedTaskCard(task: UploadManager.Task) {
                 contentDescription = null,
                 modifier = Modifier.size(22.dp),
                 tint = if (success) {
-                    MaterialTheme.colorScheme.tertiary
+                    MaterialTheme.colorScheme.primary
                 } else {
                     MaterialTheme.colorScheme.error
                 },

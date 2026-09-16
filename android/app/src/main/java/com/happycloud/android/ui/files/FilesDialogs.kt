@@ -38,6 +38,7 @@ import com.happycloud.android.data.FileItem
 import com.happycloud.android.data.ApiException
 import com.happycloud.android.data.safeApi
 import com.happycloud.android.ui.theme.ButtonShape
+import com.happycloud.android.ui.theme.DialogShape
 import kotlinx.coroutines.launch
 
 /** 新建文件夹 */
@@ -70,7 +71,7 @@ fun NewFolderDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = DialogShape,
     )
 }
 
@@ -105,7 +106,7 @@ fun RenameDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = DialogShape,
     )
 }
 
@@ -135,7 +136,7 @@ fun DeleteDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = DialogShape,
     )
 }
 
@@ -238,7 +239,7 @@ fun MoveDialog(
                             verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.weight(1f),
                         ) {
-                            items(folders, key = { it.id }) { folder ->
+                            items(folders) { folder ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -278,6 +279,6 @@ fun MoveDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = DialogShape,
     )
 }

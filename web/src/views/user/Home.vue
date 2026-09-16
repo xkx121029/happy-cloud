@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   AddCircleOutline,
@@ -30,6 +30,7 @@ import {
   favoriteFile,
   fetchQuota,
   fetchStorageOverview,
+  fileDetail,
   listFiles,
   listFavorites,
   mkdir,
@@ -275,7 +276,9 @@ function taskProgressStatus(t: UploadTaskItem): 'default' | 'success' | 'error' 
 function startUploads(fileList: File[]) {
   if (!fileList.length) return
   for (const file of fileList) {
-    const task: UploadTaskItem = { id: ++uploadSeq, name: file.name, size: file.size, status: 'hashing', progress: 0 }
+    // 必须用 reactive 包一层：往 ref 数组里塞普通对象后，渲染读到的是它的 reactive 代理，
+    // 后续直接给原对象赋值不会经过代理的 set 陷阱，进度条与状态会卡在初始值不动。
+    const task = reactive<UploadTaskItem>({ id: ++uploadSeq, name: file.name, size: file.size, status: 'hashing', progress: 0 })
     uploadTasks.value.push(task)
     uploadFile(file, currentParentId.value, {
       onStatus: (s) => {
@@ -285,17 +288,17 @@ function startUploads(fileList: File[]) {
         task.progress = p
       }
     })
-      .then(() => {
-        // 保留"已完成"状态短暂显示，再移除并刷新列表，避免界面瞬间无反馈
-        task.status = 'done'
+      .then((item) => {
+        // 进度跑满即用真实文件卡片替换上传信息卡片，不做停留
         task.progress = 100
-        setTimeout(() => {
-          uploadTasks.value = uploadTasks.value.filter((x) => x !== task)
-          loadList()
-          loadQuota()
-          // M6 修复：上传完成后同步刷新存储概览分类统计，保证与配额口径一致
-          loadStorage()
-        }, 800)
+        // 按 id 移除：数组里存的是 reactive 代理，用对象引用比对永远不相等，卡片会一直留着
+        uploadTasks.value = uploadTasks.value.filter((x) => x.id !== task.id)
+        if (item && item.id > 0 && activeNav.value === 'drive' && item.parent_id === currentParentId.value) {
+          files.value = [item, ...files.value.filter((f) => f.id !== item.id)]
+        }
+        // 列表已就地更新，仅静默刷新配额与存储概览
+        loadQuota()
+        loadStorage()
       })
       .catch(() => {
         task.status = 'error'
@@ -329,6 +332,34 @@ function hideCtx() {
 function onOpen(f: FileItem) {
   if (f.type === 0) enterFolder(f)
   else openPreview(f)
+}
+
+/* ---------- 文件详情 ---------- */
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailData = ref<{
+  file: any
+  ref_count: number
+  blob_size: number
+  billed_self: boolean
+  on_disk: boolean
+  dedup: boolean
+  storage_path: string
+  migrated: boolean
+} | null>(null)
+
+async function openDetail(f: FileItem) {
+  if (f.type !== 1) return
+  detailData.value = null
+  detailVisible.value = true
+  detailLoading.value = true
+  try {
+    detailData.value = await fileDetail(f.id)
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 /* ---------- 在线预览 ---------- */
@@ -813,6 +844,9 @@ onBeforeUnmount(() => {
               <n-button quaternary circle size="tiny" title="下载" :disabled="f.type === 0" @click="onDownload(f)">
                 <template #icon><n-icon><DownloadOutline /></n-icon></template>
               </n-button>
+              <n-button quaternary circle size="tiny" title="详情" @click="openDetail(f)">
+                <template #icon><n-icon><PieChartOutline /></n-icon></template>
+              </n-button>
               <n-button quaternary circle size="tiny" title="重命名" @click="openRename(f)">
                 <template #icon><n-icon><CreateOutline /></n-icon></template>
               </n-button>
@@ -939,7 +973,7 @@ onBeforeUnmount(() => {
     <SettingsDrawer :visible="settingsVisible" @update:visible="settingsVisible = $event" />
 
     <!-- 修改密码弹窗 -->
-    <n-modal :show="pwdVisible" preset="card" title="修改登录密码" style="width: 420px" :bordered="false" @update:show="pwdVisible = $event">
+    <n-modal v-model:show="pwdVisible" preset="card" title="修改登录密码" style="width: 420px" :bordered="false" @update:show="pwdVisible = $event">
       <n-form label-placement="top">
         <n-form-item label="原密码">
           <n-input v-model:value="oldPwd" type="password" show-password-on="click" placeholder="请输入当前密码" />
@@ -958,5 +992,102 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </n-modal>
+
+    <!-- 文件详情弹窗 -->
+    <n-modal v-model:show="detailVisible" preset="card" title="文件详情" style="width: 480px" :bordered="false" :mask-closable="true">
+      <n-spin :show="detailLoading">
+        <div v-if="detailData" class="detail-grid">
+          <div class="detail-item">
+            <div class="detail-label">文件名</div>
+            <div class="detail-value">{{ detailData.file?.name }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">文件大小</div>
+            <div class="detail-value">{{ formatSize(detailData.file?.size ?? 0) }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">创建时间</div>
+            <div class="detail-value">{{ formatDate(detailData.file?.created_at) }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">全站引用数</div>
+            <div class="detail-value">
+              <n-tag :type="detailData.ref_count > 1 ? 'warning' : 'default'" size="small">{{ detailData.ref_count }} 个索引</n-tag>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">去重共享</div>
+            <div class="detail-value">
+              <n-tag :type="detailData.dedup ? 'success' : 'default'" size="small">
+                {{ detailData.dedup ? '是（与其他文件共享实体）' : '否（独立存储）' }}
+              </n-tag>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">配额归属</div>
+            <div class="detail-value">
+              <n-tag :type="detailData.billed_self ? 'primary' : 'info'" size="small">
+                {{ detailData.billed_self ? '本用户计费' : '他人计费（不计入本用户配额）' }}
+              </n-tag>
+            </div>
+          </div>
+          <div class="detail-item full-width">
+            <div class="detail-label">实体存储路径</div>
+            <div class="detail-value detail-path">{{ detailData.storage_path || '-' }}</div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">磁盘物理实体</div>
+            <div class="detail-value">
+              <n-tag :type="detailData.on_disk ? 'success' : 'warning'" size="small">
+                {{ detailData.on_disk ? '已存在' : '未找到（可能被回收）' }}
+              </n-tag>
+            </div>
+          </div>
+          <div class="detail-item">
+            <div class="detail-label">已迁移</div>
+            <div class="detail-value">
+              <n-tag :type="detailData.migrated ? 'success' : 'default'" size="small">
+                {{ detailData.migrated ? '是（已迁移到去重存储）' : '否（旧格式，仍可读取）' }}
+              </n-tag>
+            </div>
+          </div>
+        </div>
+      </n-spin>
+      <template #footer>
+        <div class="modal-footer">
+          <n-button @click="detailVisible = false">关闭</n-button>
+        </div>
+      </template>
+    </n-modal>
   </div>
 </template>
+
+<style scoped>
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.detail-item.full-width {
+  grid-column: 1 / -1;
+}
+.detail-label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.detail-value {
+  font-size: 14px;
+  color: var(--text-1);
+  word-break: break-all;
+}
+.detail-path {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-2);
+}
+</style>

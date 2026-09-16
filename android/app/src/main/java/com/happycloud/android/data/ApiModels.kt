@@ -63,6 +63,16 @@ data class HashCheck(
     @SerializedName("file_id") val fileId: Long = 0,
 )
 
+/** P2P 配置（GET /api/p2p/config） */
+data class P2PConfig(
+    val p2p: Boolean = false,
+    val ws: String = "",
+    val room: String = "",
+    @SerializedName("iceServers") val iceServers: List<IceServer> = emptyList(),
+) {
+    data class IceServer(val urls: List<String> = emptyList())
+}
+
 /** 分享创建结果 */
 data class ShareResult(val token: String, val url: String)
 

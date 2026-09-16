@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 object Network {
 
     /** 默认后端地址（模拟器访问宿主机用 10.0.2.2，真机可改局域网 IP） */
-    const val DEFAULT_BASE_URL = "http://10.0.2.2:8080/"
+    const val DEFAULT_BASE_URL = "http://10.0.2.2:8889/"
 
     /** 当前服务端地址（以 / 结尾），登录页可自定义 */
     @Volatile
@@ -47,12 +47,22 @@ object Network {
     @Volatile
     private var apiInstance: ApiService? = null
 
-    /** 切换服务端地址并重建 Retrofit；登录/设置服务器地址时调用 */
+    /** 切换服务端地址并重建 Retrofit；登录/设置服务器地址时调用
+     *  对输入做安全兜底：缺失 scheme 自动补 http://，空值回落到默认地址，
+     *  避免非法地址让 Retrofit 抛 IllegalArgumentException 导致崩溃。 */
     @Synchronized
     fun setBaseUrl(url: String) {
-        val trimmed = url.trim().trimEnd('/')
-        val normalized = if (trimmed.isEmpty()) DEFAULT_BASE_URL else "$trimmed/"
-        baseUrl = normalized
+        var trimmed = url.trim().trimEnd('/')
+        if (trimmed.isEmpty()) {
+            baseUrl = DEFAULT_BASE_URL
+            apiInstance = null
+            return
+        }
+        // 无协议前缀时自动补 http://，避免 Retofit 解析失败
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            trimmed = "http://$trimmed"
+        }
+        baseUrl = "$trimmed/"
         apiInstance = null
     }
 

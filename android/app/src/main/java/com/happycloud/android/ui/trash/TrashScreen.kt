@@ -50,7 +50,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.happycloud.android.data.FileItem
+import com.happycloud.android.ui.components.EmptyState
+import com.happycloud.android.ui.components.ErrorState
 import com.happycloud.android.ui.theme.ButtonShape
+import com.happycloud.android.ui.theme.DialogShape
 import com.happycloud.android.util.FormatUtil
 
 /** 回收站：列表 / 恢复 / 彻底删除 / 清空 */
@@ -120,40 +123,24 @@ fun TrashScreen(
                         }
                     }
                     state.error != null && state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = state.error.orEmpty(),
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                                Spacer(Modifier.size(12.dp))
-                                Button(onClick = viewModel::refresh, shape = ButtonShape) { Text("重试") }
-                            }
-                        }
+                        ErrorState(
+                            message = state.error.orEmpty(),
+                            onRetry = viewModel::refresh,
+                        )
                     }
                     state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "回收站是空的",
-                                    style = MaterialTheme.typography.titleLarge,
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(
-                                    text = "删除的文件会暂存在这里，可随时恢复",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        EmptyState(
+                            icon = Icons.Filled.DeleteSweep,
+                            title = "回收站是空的",
+                            subtitle = "删除的文件会暂存在这里，可随时恢复",
+                        )
                     }
                     else -> {
                         LazyColumn(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(state.items, key = { it.id }) { file ->
+                            items(state.items) { file ->
                                 TrashRow(
                                     file = file,
                                     onRestore = { viewModel.restore(file) {} },
@@ -183,12 +170,16 @@ fun TrashScreen(
                         viewModel.deletePermanent(target) { confirmPermanent = null }
                     },
                     shape = ButtonShape,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
                 ) { Text("彻底删除") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmPermanent = null }) { Text("取消") }
             },
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = DialogShape,
         )
     }
     if (confirmClear) {
@@ -207,12 +198,16 @@ fun TrashScreen(
                         viewModel.clearAll { confirmClear = false }
                     },
                     shape = ButtonShape,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
                 ) { Text("清空") }
             },
             dismissButton = {
                 TextButton(onClick = { confirmClear = false }) { Text("取消") }
             },
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = DialogShape,
         )
     }
 }
@@ -227,7 +222,8 @@ private fun TrashRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -240,7 +236,7 @@ private fun TrashRow(
                 tint = if (file.isFolder) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.tertiary
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
             Spacer(Modifier.width(14.dp))

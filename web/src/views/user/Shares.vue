@@ -159,7 +159,7 @@ onMounted(load)
               <tr v-for="s in shares" :key="s.id" :class="{ 'row-expired': s.is_expired }">
                 <td>
                   <div class="cell-name">
-                    <n-icon :size="18" color="#2563eb"><LinkOutline /></n-icon>
+                    <n-icon :size="18" color="#0E6A5C"><LinkOutline /></n-icon>
                     <span :title="s.file_name">{{ s.file_name }}</span>
                     <span v-if="s.is_expired" class="share-expired-tag">已过期</span>
                   </div>
@@ -196,7 +196,7 @@ onMounted(load)
     <!-- 编辑分享弹窗 -->
     <n-modal v-model:show="editVisible" preset="card" title="分享设置" style="width: 420px" :bordered="false">
       <div class="edit-share-file">
-        <n-icon :size="18" color="#2563eb"><LinkOutline /></n-icon>
+        <n-icon :size="18" color="#0E6A5C"><LinkOutline /></n-icon>
         <span class="edit-share-name">{{ editTarget?.file_name }}</span>
       </div>
       <n-form label-placement="top">

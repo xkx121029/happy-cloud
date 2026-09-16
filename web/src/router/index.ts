@@ -20,7 +20,8 @@ const router = createRouter({
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/Users.vue') },
         { path: 'files', name: 'admin-files', component: () => import('@/views/admin/Files.vue') },
         { path: 'monitor', name: 'admin-monitor', component: () => import('@/views/admin/Monitor.vue') },
-        { path: 'logs', name: 'admin-logs', component: () => import('@/views/admin/Logs.vue') }
+        { path: 'logs', name: 'admin-logs', component: () => import('@/views/admin/Logs.vue') },
+        { path: 'storage', name: 'admin-storage', component: () => import('@/views/admin/Storage.vue') }
       ]
     },
     { path: '/:pathMatch(.*)*', redirect: '/' }

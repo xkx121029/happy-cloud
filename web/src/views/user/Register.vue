@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { message } from '@/utils/notify'
+import { CloudSharp } from '@vicons/ionicons5'
 
 const router = useRouter()
 const store = useUserStore()
@@ -38,7 +39,9 @@ async function onSubmit() {
   <div class="auth-page">
     <div class="auth-card">
       <div class="auth-head">
-        <div class="brand-mark large">HC</div>
+        <div class="brand-mark large">
+          <n-icon :component="CloudSharp" :size="24" />
+        </div>
         <h1>注册账号</h1>
         <p>加入 Happy-Cloud，随时存取你的文件</p>
       </div>

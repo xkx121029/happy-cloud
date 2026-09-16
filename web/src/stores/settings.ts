@@ -14,10 +14,16 @@ export interface SettingsState {
   pageSize: number
   /** 并行上传数 */
   uploadConcurrency: number
+  /** 并行下载数（原生并发 Range，浏览器受连接池限制通常 6） */
+  downloadConcurrency: number
+  /** 大文件下载并行度（>= 200MB 启用多连接；1 = 单连接，0 = 禁用） */
+  parallelDownload: number
   /** 记住我：登录页记住用户名（M11 修复：移除明文密码字段） */
   remember: { username: string; enabled: boolean }
   /** 是否已从后端加载 */
   loaded: boolean
+  /** 启用 P2P 打洞直连（下载/大文件走隧道，需后端开启信令） */
+  p2pEnabled: boolean
 }
 
 const DEFAULT_STATE: SettingsState = {
@@ -26,8 +32,11 @@ const DEFAULT_STATE: SettingsState = {
   defaultSort: 'name',
   pageSize: 50,
   uploadConcurrency: 3,
+  downloadConcurrency: 3,
+  parallelDownload: 4,
   remember: { username: '', enabled: false },
-  loaded: false
+  loaded: false,
+  p2pEnabled: false
 }
 
 function readLS(): Partial<SettingsState> {

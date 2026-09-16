@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"happy-cloud/backend/internal/blob"
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/model"
 	"happy-cloud/backend/internal/util"
@@ -156,8 +157,7 @@ func Stats(c *gin.Context) {
 	var storageUsed struct {
 		Total int64
 	}
-	// L6 修复：统计口径与 StorageOverview 统一——回收站文件仍占配额（M8 决策），
-	// storage_used 统计全部文件（含回收站），与 quota_used 口径一致
+	// M8 决策：回收站文件仍占配额，storage_used 统计全部文件（含回收站）
 	db.DB.Model(&model.File{}).Where("type = 1").Select("COALESCE(SUM(size),0) AS total").Scan(&storageUsed)
 	var todayUploads int64
 	db.DB.Model(&model.File{}).Where("type = 1 AND DATE(created_at) = CURDATE()").Count(&todayUploads)
@@ -166,6 +166,17 @@ func Stats(c *gin.Context) {
 	db.DB.Model(&model.Log{}).
 		Where("action = ? AND created_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)", "login").
 		Distinct("user_id").Count(&onlineUsers)
+
+	// dedup：去重统计（物理占用 vs 逻辑占用）
+	dedup := gin.H{"physical_used": int64(0), "logical_used": storageUsed.Total, "dedup_saved": int64(0)}
+	if st, err := blob.Stats(); err == nil {
+		dedup["physical_used"] = st.PhysicalBytes
+		dedup["logical_used"] = st.LogicalBytes
+		dedup["dedup_saved"] = st.SavedBytes
+		dedup["blob_count"] = st.BlobCount
+		dedup["ref_count_sum"] = st.RefCountSum
+		dedup["trash_only_count"] = st.TrashOnlyCount
+	}
 	util.OK(c, gin.H{
 		"user_count":    userCount,
 		"file_count":    fileCount,
@@ -173,7 +184,71 @@ func Stats(c *gin.Context) {
 		"storage_used":  storageUsed.Total,
 		"today_uploads": todayUploads,
 		"online_users":  onlineUsers,
+		"dedup":         dedup,
 	})
+}
+
+// AdminStorageIndex 存储索引概览（物理实体统计 + 去重节省）
+func AdminStorageIndex(c *gin.Context) {
+	st, err := blob.Stats()
+	if err != nil {
+		util.Fail(c, 500, "存储统计失败: "+err.Error())
+		return
+	}
+	util.OK(c, st)
+}
+
+// AdminListBlobs 管理端实体列表（分页 + hash 关键字）
+func AdminListBlobs(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	keyword := c.Query("keyword")
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+	total, items, err := blob.List(page, pageSize, keyword)
+	if err != nil {
+		util.Fail(c, 500, "查询失败: "+err.Error())
+		return
+	}
+	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": items})
+}
+
+// AdminBlobRefs 实体被哪些文件索引引用
+func AdminBlobRefs(c *gin.Context) {
+	hash := c.Param("hash")
+	if hash == "" {
+		util.Fail(c, 400, "hash 为空")
+		return
+	}
+	items, err := blob.Refs(hash)
+	if err != nil {
+		util.Fail(c, 500, "查询失败: "+err.Error())
+		return
+	}
+	util.OK(c, gin.H{"hash": hash, "refs": items})
+}
+
+// AdminStorageVerify 校验/修复存储索引
+func AdminStorageVerify(c *gin.Context) {
+	var req struct {
+		Apply     bool `json:"apply"`
+		GCOrphans bool `json:"gc_orphans"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.Apply = false
+		req.GCOrphans = false
+	}
+	rep, err := blob.Verify(req.Apply, req.GCOrphans)
+	if err != nil {
+		util.Fail(c, 500, "校验失败: "+err.Error())
+		return
+	}
+	adminLog(c, "storage_verify", fmt.Sprintf("apply=%v gc_orphans=%v", req.Apply, req.GCOrphans))
+	util.OK(c, rep)
 }
 
 // ListLogs 操作日志

@@ -57,5 +57,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.webrtc)
     debugImplementation(libs.compose.ui.tooling)
 }

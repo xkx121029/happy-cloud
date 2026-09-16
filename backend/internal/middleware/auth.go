@@ -49,16 +49,24 @@ func ParseToken(tokenStr string) (*Claims, error) {
 	return nil, jwt.ErrTokenInvalidClaims
 }
 
-// Auth 鉴权中间件：校验 Authorization: Bearer <token>
+// Auth 鉴权中间件：优先校验 Authorization: Bearer <token>；
+// 浏览器媒体标签（<img>/<video>/<audio>/<iframe>）无法自定义请求头，
+// 故对 GET 请求额外接受 ?token= 回退，使大文件可按 Range 边下边播（不受内存限制）。
+// 该回退仅用于 GET，避免写操作被 URL 携带的凭证触发。
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		if !strings.HasPrefix(header, "Bearer ") {
+		tokenStr := ""
+		if header := c.GetHeader("Authorization"); strings.HasPrefix(header, "Bearer ") {
+			tokenStr = strings.TrimPrefix(header, "Bearer ")
+		} else if c.Request.Method == http.MethodGet {
+			tokenStr = c.Query("token")
+		}
+		if tokenStr == "" {
 			util.Fail(c, 401, "未登录或登录已过期")
 			c.Abort()
 			return
 		}
-		claims, err := ParseToken(strings.TrimPrefix(header, "Bearer "))
+		claims, err := ParseToken(tokenStr)
 		if err != nil {
 			util.Fail(c, 401, "未登录或登录已过期")
 			c.Abort()

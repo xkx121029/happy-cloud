@@ -22,6 +22,17 @@ export interface FileItem {
   updated_at?: string
 }
 
+export interface FileDetail {
+  file: FileItem
+  ref_count: number
+  blob_size: number
+  billed_self: boolean
+  on_disk: boolean
+  dedup: boolean
+  storage_path: string
+  migrated: boolean
+}
+
 /** 我的分享条目 */
 export interface MyShareItem {
   id: number
@@ -98,6 +109,18 @@ export interface AdminStats {
   storage_used: number
   today_uploads: number
   online_users: number
+  dedup?: DedupStats
+}
+
+export interface DedupStats {
+  blob_count: number
+  physical_bytes: number
+  logical_bytes: number
+  saved_bytes: number
+  ref_count_sum: number
+  trash_only_count: number
+  unbilled_count: number
+  legacy_bytes: number // legacy bytes (字节数), not rows
 }
 
 export interface AdminLog {

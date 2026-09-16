@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.AlertDialog
@@ -57,7 +58,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.happycloud.android.data.MyShareItem
 import com.happycloud.android.data.Network
+import com.happycloud.android.ui.components.EmptyState
+import com.happycloud.android.ui.components.ErrorState
 import com.happycloud.android.ui.theme.ButtonShape
+import com.happycloud.android.ui.theme.DialogShape
 import com.happycloud.android.util.FormatUtil
 import kotlinx.coroutines.launch
 
@@ -124,40 +128,24 @@ fun SharesScreen(
                         }
                     }
                     state.error != null && state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = state.error.orEmpty(),
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                )
-                                Spacer(Modifier.size(12.dp))
-                                Button(onClick = viewModel::refresh, shape = ButtonShape) { Text("重试") }
-                            }
-                        }
+                        ErrorState(
+                            message = state.error.orEmpty(),
+                            onRetry = viewModel::refresh,
+                        )
                     }
                     state.items.isEmpty() -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "还没有分享",
-                                    style = MaterialTheme.typography.titleLarge,
-                                )
-                                Spacer(Modifier.size(6.dp))
-                                Text(
-                                    text = "在文件列表长按文件即可创建分享链接",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        EmptyState(
+                            icon = Icons.Filled.Link,
+                            title = "还没有分享",
+                            subtitle = "在文件列表长按文件即可创建分享链接",
+                        )
                     }
                     else -> {
                         LazyColumn(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(state.items, key = { it.id }) { share ->
+                            items(state.items) { share ->
                                 ShareRow(
                                     share = share,
                                     onCopy = { copyLink(share) },
@@ -193,12 +181,16 @@ fun SharesScreen(
                 Button(
                     onClick = { viewModel.cancel(target) { cancelTarget = null } },
                     shape = ButtonShape,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ),
                 ) { Text("取消分享") }
             },
             dismissButton = {
                 TextButton(onClick = { cancelTarget = null }) { Text("返回") }
             },
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = DialogShape,
         )
     }
 }
@@ -213,7 +205,8 @@ private fun ShareRow(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -224,7 +217,7 @@ private fun ShareRow(
                     tint = if (share.fileType == 0) {
                         MaterialTheme.colorScheme.primary
                     } else {
-                        MaterialTheme.colorScheme.tertiary
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
                 Spacer(Modifier.width(12.dp))
@@ -360,6 +353,6 @@ private fun ExpireDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },
-        shape = MaterialTheme.shapes.extraLarge,
+        shape = DialogShape,
     )
 }

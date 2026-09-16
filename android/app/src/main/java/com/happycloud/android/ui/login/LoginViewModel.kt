@@ -56,7 +56,11 @@ class LoginViewModel(private val container: AppContainer) : ViewModel() {
                 container.tokenStore.save(data.token, data.user.username)
                 onSuccess()
             } catch (e: ApiException) {
+                // 后端返回的业务错误
                 _state.update { it.copy(loading = false, error = e.message) }
+            } catch (e: Exception) {
+                // 兜底：地址解析/本地存储等异常不崩溃，转为中文提示
+                _state.update { it.copy(loading = false, error = "登录失败：${e.message ?: "未知错误"}") }
             }
         }
     }

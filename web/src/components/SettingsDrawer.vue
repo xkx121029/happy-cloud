@@ -1,11 +1,26 @@
 <script setup lang="ts">
 import { SettingsOutline } from '@vicons/ionicons5'
 import { useSettingsStore } from '@/stores/settings'
+import { useP2P } from '@/p2p'
 
 defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ (e: 'update:visible', v: boolean): void }>()
 
 const settings = useSettingsStore()
+const p2p = useP2P()
+
+async function onP2PToggle(checked: boolean) {
+  if (checked) {
+    const ok = await p2p.connect()
+    if (!ok) {
+      settings.set('p2pEnabled', false)
+      return
+    }
+  } else {
+    p2p.disconnect()
+  }
+  await settings.set('p2pEnabled', checked)
+}
 
 const themes = [
   { label: '浅色', value: 'light' },
@@ -65,6 +80,18 @@ function close() {
       <div class="setting-row">
         <span class="setting-label">并行上传数</span>
         <n-input-number v-model:value="settings.uploadConcurrency" :min="1" :max="8" size="small" style="width: 110px" @update:value="(v: number | null) => v && settings.set('uploadConcurrency', v)" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-section-title">连接</div>
+      <div class="setting-row">
+        <span class="setting-label">P2P 打洞直连</span>
+        <n-switch :value="settings.p2pEnabled" :loading="p2p.state.busy" size="small" @update:value="onP2PToggle" />
+      </div>
+      <div v-if="settings.p2pEnabled || p2p.state.connected" class="setting-tip">
+        当前连接：<span :class="p2p.state.connected ? 'p2p-on' : 'p2p-off'">{{ p2p.state.connected ? 'P2P 直连' : 'HTTP' }}</span>
+        <span v-if="p2p.state.error" class="p2p-err">（{{ p2p.state.error }}）</span>
       </div>
     </div>
 

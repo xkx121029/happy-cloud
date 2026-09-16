@@ -17,6 +17,22 @@ type Config struct {
 	AdminUser     string // 指定用户名注册后即为管理员
 	AdminPassword string // 管理员初始密码（启动时重置 admin 为该值）
 	CORSOrigins   []string
+
+	// P2P 打洞配置
+	P2PEnabled  bool   // 是否启用 P2P 打洞 host 角色
+	StunEnabled bool   // 是否启用内置 STUN
+	StunAddr    string // STUN 监听地址（:3478）
+	P2PMaxStreams int  // 每用户并发文件流上限
+	SignalingURL string // 后端 host 建立 WebRTC 隧道前连接的独立信令服务器 ws 地址
+	PublicHost   string // 下发给客户端的 STUN/信令公网可达地址
+	HostRoom     string // 后端 host 在信令服务器使用的 room id
+	SignalingPort string // 独立信令服务器监听端口（cmd/signaling 各用）
+	// 容器部署下 ICE 需要对外广播宿主机可达地址：
+	// 容器自己的 172.x 地址在宿主机/局域网侧不可路由，必须替换为宿主机的局域网 IP，
+	// 并把 ICE 的 UDP 端口固定成一段可发布的端口范围（与 docker-compose 的映射一致）。
+	AdvertiseIP string // 对外广播的宿主机 IP（留空则不替换，适用于后端非容器运行）
+	ICEPortMin  int    // ICE UDP 端口范围下限（0 表示不固定）
+	ICEPortMax  int    // ICE UDP 端口范围上限
 }
 
 var Cfg = &Config{}
@@ -33,6 +49,18 @@ func Load() {
 	Cfg.AdminPassword = getenv("ADMIN_PASSWORD", "password")
 	origins := getenv("CORS_ORIGINS", "*")
 	Cfg.CORSOrigins = strings.Split(origins, ",")
+
+	Cfg.P2PEnabled = getenv("P2P_ENABLED", "true") != "false"
+	Cfg.StunEnabled = getenv("P2P_STUN_ENABLED", "true") != "false"
+	Cfg.StunAddr = getenv("P2P_STUN_ADDR", ":3478")
+	Cfg.P2PMaxStreams = atoiSafe(getenv("P2P_MAX_STREAMS", "4"))
+	Cfg.SignalingURL = getenv("SIGNALING_URL", "")
+	Cfg.PublicHost = getenv("PUBLIC_HOST", "")
+	Cfg.HostRoom = getenv("P2P_HOST_ROOM", "happy-cloud")
+	Cfg.SignalingPort = getenv("SIGNALING_PORT", "8787")
+	Cfg.AdvertiseIP = getenv("P2P_ADVERTISE_IP", "")
+	Cfg.ICEPortMin = atoiSafe(getenv("P2P_UDP_PORT_MIN", "0"))
+	Cfg.ICEPortMax = atoiSafe(getenv("P2P_UDP_PORT_MAX", "0"))
 }
 
 func getenv(key, def string) string {

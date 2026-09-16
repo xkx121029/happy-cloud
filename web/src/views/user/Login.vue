@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useSettingsStore } from '@/stores/settings'
 import { message } from '@/utils/notify'
+import { CloudSharp } from '@vicons/ionicons5'
 
 const route = useRoute()
 const router = useRouter()
@@ -78,7 +79,7 @@ async function onSubmit() {
     <div class="auth-card">
       <div class="auth-head">
         <div class="brand-mark large" :class="{ 'admin-glow': adminMode }" @click="onBrandClick">
-          HC
+          <n-icon :component="CloudSharp" :size="24" />
           <span v-if="adminMode" class="brand-badge">ADMIN</span>
         </div>
         <h1>Happy-Cloud</h1>

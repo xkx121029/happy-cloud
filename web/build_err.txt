@@ -1,0 +1,17 @@
+﻿node.exe : [33m[plugin vite:reporter] 
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([33m[plugin vite:reporter] :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(!) D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src/stores/user.ts is dynamically imported by D:/xkx/xkx_appproj/hap
+py_teach/happy_cloud/web/src/stores/settings.ts but also statically imported by D:/xkx/xkx_appproj/happy_teach/happy_cl
+oud/web/src/App.vue?vue&type=script&setup=true&lang.ts, D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src/api/request.
+ts, D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src/p2p/index.ts, D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src
+/router/index.ts, D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src/views/admin/AdminLayout.vue?vue&type=script&setup=
+true&lang.ts, D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src/views/user/Home.vue?vue&type=script&setup=true&lang.ts
+, D:/xkx/xkx_appproj/happy_teach/happy_cloud/web/src/views/user/Login.vue?vue&type=script&setup=true&lang.ts, D:/xkx/xk
+x_appproj/happy_teach/happy_cloud/web/src/views/user/Register.vue?vue&type=script&setup=true&lang.ts, dynamic import wi
+ll not move module into another chunk.
+[39m

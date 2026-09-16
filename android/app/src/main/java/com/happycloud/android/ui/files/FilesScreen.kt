@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -31,18 +33,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.ViewList
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -63,6 +66,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,11 +77,15 @@ import androidx.compose.ui.unit.dp
 import com.happycloud.android.AppContainer
 import com.happycloud.android.data.FileItem
 import com.happycloud.android.data.StorageOverview
+import com.happycloud.android.ui.components.EmptyState
+import com.happycloud.android.ui.components.ErrorState
 import com.happycloud.android.ui.preview.PreviewDialog
 import com.happycloud.android.ui.share.ShareDialog
-import com.happycloud.android.ui.theme.ButtonShape
 import com.happycloud.android.util.FormatUtil
 import com.happycloud.android.util.PreviewUtil
+
+/** 收藏星标激活色（降饱和金，与石墨/青绿底色更协调） */
+private val FAVORITE_ACTIVE = Color(0xFFE0A800)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -89,6 +97,14 @@ fun FilesScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val p2pMode by container.p2p.mode.collectAsState()
+    val p2pStatus by container.p2p.status.collectAsState()
+
+    // 页面加载后尝试建立 P2P 打洞隧道（仅触发一次，失败不影响 HTTP 直连）
+    LaunchedEffect(Unit) {
+        container.p2p.ensureConnected(scope)
+    }
 
     // 菜单与对话框状态
     var menuTarget by remember { mutableStateOf<FileItem?>(null) }
@@ -131,53 +147,62 @@ fun FilesScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Column {
-                // 来源切换：全部 / 最近 / 收藏
-                SourceSwitcher(
-                    source = state.source,
-                    onSwitch = viewModel::switchSource,
-                )
-                // 面包屑 + 新建文件夹 + 视图切换
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 8.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    LazyRow(modifier = Modifier.weight(1f)) {
-                        items(state.breadcrumb.size) { index ->
-                            val crumb = state.breadcrumb[index]
-                            TextButton(onClick = { viewModel.navigateTo(index) }) {
-                                Text(
-                                    text = crumb.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                            if (index < state.breadcrumb.lastIndex) {
-                                Text(
-                                    text = "/",
-                                    color = MaterialTheme.colorScheme.outline,
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
+            Surface(
+                modifier = Modifier.statusBarsPadding(),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Column {
+                    // 来源切换：全部 / 最近 / 收藏
+                    SourceSwitcher(
+                        source = state.source,
+                        onSwitch = viewModel::switchSource,
+                    )
+                    // 面包屑 + 新建文件夹 + 视图切换
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        LazyRow(modifier = Modifier.weight(1f)) {
+                            items(state.breadcrumb.size) { index ->
+                                val crumb = state.breadcrumb[index]
+                                TextButton(onClick = { viewModel.navigateTo(index) }) {
+                                    Text(
+                                        text = crumb.name,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                if (index < state.breadcrumb.lastIndex) {
+                                    Text(
+                                        text = "/",
+                                        color = MaterialTheme.colorScheme.outline,
+                                        style = MaterialTheme.typography.titleMedium,
+                                    )
+                                }
                             }
                         }
+                        IconButton(onClick = { showNewFolder = true }) {
+                            Icon(
+                                Icons.Filled.CreateNewFolder,
+                                contentDescription = "新建文件夹",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        ViewModeSwitch(gridMode = state.gridMode, onToggle = viewModel::toggleGrid)
                     }
-                    IconButton(onClick = { showNewFolder = true }) {
-                        Icon(
-                            Icons.Filled.CreateNewFolder,
-                            contentDescription = "新建文件夹",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    // 空间用量条
+                    QuotaBar(used = state.quotaUsed, max = state.quotaMax)
+                    // P2P 连接状态
+                    P2PStatusChip(mode = p2pMode, status = p2pStatus)
+                    // 存储概览卡片（全部文件视图展示分类占用）
+                    if (state.source == FileSource.ALL && state.overview != null) {
+                        OverviewCard(overview = state.overview!!)
                     }
-                    ViewModeSwitch(gridMode = state.gridMode, onToggle = viewModel::toggleGrid)
-                }
-                // 空间用量条
-                QuotaBar(used = state.quotaUsed, max = state.quotaMax)
-                // 存储概览卡片（全部文件视图展示分类占用）
-                if (state.source == FileSource.ALL && state.overview != null) {
-                    OverviewCard(overview = state.overview!!)
+                    // hairline 分隔，与内容区隔离
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         },
@@ -219,7 +244,7 @@ fun FilesScreen(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            items(state.items, key = { it.id }) { file ->
+                            items(state.items) { file ->
                                 FileGridCard(
                                     file = file,
                                     isFavorite = state.favoriteIds.contains(file.id),
@@ -235,7 +260,7 @@ fun FilesScreen(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            items(state.items, key = { it.id }) { file ->
+                            items(state.items) { file ->
                                 FileListRow(
                                     file = file,
                                     isFavorite = state.favoriteIds.contains(file.id),
@@ -364,13 +389,20 @@ private fun SourceSwitcher(source: FileSource, onSwitch: (FileSource) -> Unit) {
     SingleChoiceSegmentedButtonRow(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
+        val colors = SegmentedButtonDefaults.colors(
+            activeContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            activeContentColor = MaterialTheme.colorScheme.primary,
+            inactiveContainerColor = Color.Transparent,
+            inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         labels.forEachIndexed { index, (value, label) ->
             SegmentedButton(
                 selected = source == value,
                 onClick = { onSwitch(value) },
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = labels.size),
+                colors = colors,
             ) {
                 Text(label, style = MaterialTheme.typography.labelLarge)
             }
@@ -380,17 +412,25 @@ private fun SourceSwitcher(source: FileSource, onSwitch: (FileSource) -> Unit) {
 
 @Composable
 private fun ViewModeSwitch(gridMode: Boolean, onToggle: (Boolean) -> Unit) {
+    val colors = SegmentedButtonDefaults.colors(
+        activeContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        activeContentColor = MaterialTheme.colorScheme.onSurface,
+        inactiveContainerColor = Color.Transparent,
+        inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     SingleChoiceSegmentedButtonRow(modifier = Modifier.padding(end = 8.dp)) {
         SegmentedButton(
             selected = gridMode,
             onClick = { onToggle(true) },
             shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+            colors = colors,
             icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
         ) {}
         SegmentedButton(
             selected = !gridMode,
             onClick = { onToggle(false) },
             shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+            colors = colors,
             icon = { Icon(Icons.Filled.ViewList, contentDescription = null) },
         ) {}
     }
@@ -404,7 +444,8 @@ private fun QuotaBar(used: Long, max: Long) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
             Row(
@@ -427,7 +468,7 @@ private fun QuotaBar(used: Long, max: Long) {
                 progress = { fraction },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(8.dp),
+                    .height(6.dp),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
@@ -454,6 +495,7 @@ private fun OverviewCard(overview: StorageOverview) {
             .padding(horizontal = 16.dp, vertical = 4.dp),
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(
@@ -539,13 +581,13 @@ private fun OverviewCard(overview: StorageOverview) {
     }
 }
 
-/** 分类颜色（Material 3 调和色系） */
+/** 分类颜色（青绿色相明度阶梯 + 灰阶，克制不喧宾夺主） */
 private object CategoryColor {
-    val image = Color(0xFF8B5000)   // 主色：琥珀
-    val video = Color(0xFF5B6233)   // 三级：橄榄
-    val audio = Color(0xFF705A42)   // 二级：陶土
-    val doc = Color(0xFF00696E)     // 青绿
-    val other = Color(0xFF857468)   // 轮廓灰
+    val image = Color(0xFF11695F)   // 主调：青绿
+    val video = Color(0xFF4C8C84)   // 青绿浅一档
+    val audio = Color(0xFF7A9C97)   // 青绿灰化
+    val doc = Color(0xFFB0B3AE)     // 石墨灰
+    val other = Color(0xFFD6D4D1)   // 浅石墨
 }
 
 // ---------- 列表/网格条目 ----------
@@ -563,8 +605,9 @@ private fun FileGridCard(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(
             modifier = Modifier.padding(14.dp),
@@ -582,7 +625,7 @@ private fun FileGridCard(
                     tint = if (file.isFolder) {
                         MaterialTheme.colorScheme.primary
                     } else {
-                        MaterialTheme.colorScheme.tertiary
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
                 if (!file.isFolder) {
@@ -591,7 +634,7 @@ private fun FileGridCard(
                             imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                             contentDescription = if (isFavorite) "取消收藏" else "收藏",
                             modifier = Modifier.size(20.dp),
-                            tint = if (isFavorite) Color(0xFFF5B301) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = if (isFavorite) FAVORITE_ACTIVE else MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 } else {
@@ -631,7 +674,8 @@ private fun FileListRow(
             .fillMaxWidth()
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = MaterialTheme.colorScheme.surfaceContainerLowest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -644,7 +688,7 @@ private fun FileListRow(
                 tint = if (file.isFolder) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.tertiary
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 },
             )
             Spacer(Modifier.width(14.dp))
@@ -673,7 +717,7 @@ private fun FileListRow(
                         imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                         contentDescription = if (isFavorite) "取消收藏" else "收藏",
                         modifier = Modifier.size(22.dp),
-                        tint = if (isFavorite) Color(0xFFF5B301) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isFavorite) FAVORITE_ACTIVE else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -699,55 +743,64 @@ private fun LoadingPlaceholder() {
 
 @Composable
 private fun ErrorPlaceholder(message: String, onRetry: () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.error,
-            )
-            Spacer(Modifier.height(12.dp))
-            Button(onClick = onRetry, shape = ButtonShape) { Text("重试") }
-        }
-    }
+    ErrorState(message = message, onRetry = onRetry)
 }
 
 @Composable
 private fun EmptyPlaceholder(source: FileSource, onUpload: () -> Unit) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = when (source) {
-                    FileSource.ALL -> "这里空空如也"
-                    FileSource.RECENT -> "暂无最近文件"
-                    FileSource.FAVORITE -> "还没有收藏"
-                },
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = when (source) {
-                    FileSource.ALL -> "上传第一个文件，或新建文件夹开始整理"
-                    FileSource.RECENT -> "访问过的文件会出现在这里"
-                    FileSource.FAVORITE -> "点击文件上的星标即可收藏"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (source == FileSource.ALL) {
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = onUpload, shape = ButtonShape) {
-                    Icon(Icons.Filled.Upload, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("上传文件")
-                }
-            }
-        }
-    }
+    EmptyState(
+        icon = Icons.Filled.FolderOpen,
+        title = when (source) {
+            FileSource.ALL -> "这里空空如也"
+            FileSource.RECENT -> "暂无最近文件"
+            FileSource.FAVORITE -> "还没有收藏"
+        },
+        subtitle = when (source) {
+            FileSource.ALL -> "上传第一个文件，或新建文件夹开始整理"
+            FileSource.RECENT -> "访问过的文件会出现在这里"
+            FileSource.FAVORITE -> "点击文件上的星标即可收藏"
+        },
+        actionLabel = if (source == FileSource.ALL) "上传文件" else null,
+        onAction = if (source == FileSource.ALL) onUpload else null,
+    )
 }
 
 // ---------- 工具 ----------
+
+/** P2P 打洞连接状态标签 */
+@Composable
+private fun P2PStatusChip(
+    mode: com.happycloud.android.data.p2p.ConnMode,
+    status: String,
+) {
+    val (dot, label, tint) = when (mode) {
+        com.happycloud.android.data.p2p.ConnMode.P2P -> Triple("●", "P2P 直连", Color(0xFF2E9E5B))
+        com.happycloud.android.data.p2p.ConnMode.HTTP -> Triple("○", status, MaterialTheme.colorScheme.outline)
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(12.dp),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = dot,
+                color = tint,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
 
 private fun queryDisplayName(context: android.content.Context, uri: Uri): String? {
     return try {

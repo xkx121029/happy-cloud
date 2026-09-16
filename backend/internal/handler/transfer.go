@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"happy-cloud/backend/internal/blob"
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/model"
 	"happy-cloud/backend/internal/util"
@@ -72,7 +75,7 @@ func SendTransfer(c *gin.Context) {
 		util.Fail(c, 400, "仅文件可以发送")
 		return
 	}
-	if _, err := os.Stat(f.StoragePath); err != nil {
+	if _, err := os.Stat(blobPathOf(&f)); err != nil {
 		util.Fail(c, 404, "文件实体缺失")
 		return
 	}
@@ -113,7 +116,7 @@ func IncomingTransfers(c *gin.Context) {
 	util.OK(c, list)
 }
 
-// AcceptTransfer 接受转送：转存到我的网盘根目录（复用实体，不重复存盘）
+// AcceptTransfer 接受转送：转存到我的网盘根目录（复用全局实体，同一内容全站只存一份）
 func AcceptTransfer(c *gin.Context) {
 	userID := uid(c)
 	id, _ := strconv.Atoi(c.Param("id"))
@@ -132,7 +135,8 @@ func AcceptTransfer(c *gin.Context) {
 		util.Fail(c, 404, "原文件不存在，可能已被发送方删除")
 		return
 	}
-	if _, err := os.Stat(src.StoragePath); err != nil {
+	srcPath := blobPathOf(&src)
+	if _, err := os.Stat(srcPath); err != nil {
 		util.Fail(c, 404, "原文件实体缺失，可能已被发送方删除")
 		return
 	}
@@ -141,23 +145,24 @@ func AcceptTransfer(c *gin.Context) {
 		util.Fail(c, 403, "账号不可用")
 		return
 	}
-	if u.QuotaUsed+t.FileSize > u.QuotaMax {
-		util.Fail(c, 507, "存储空间不足，无法接收该文件")
-		return
-	}
 	name := uniqueName(userID, 0, t.FileName)
 	f := model.File{
 		UserID: userID, ParentID: 0, Name: name,
-		Type: 1, Size: t.FileSize, Hash: src.Hash, StoragePath: src.StoragePath,
+		Type: 1, Size: t.FileSize, Hash: src.Hash, StoragePath: srcPath,
 	}
-	if err := db.DB.Create(&f).Error; err != nil {
+	// 实体登记 + 索引写入同事务：接收方只新增索引，不再重复占用磁盘；
+	// 计费按去重后归属（该实体已被他人计费时接收方不再重复计费），配额不足时整体回滚
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if _, _, err := blob.Acquire(tx, userID, src.Hash, t.FileSize); err != nil {
+			return err
+		}
+		return tx.Create(&f).Error
+	}); err != nil {
+		if errors.Is(err, blob.ErrQuotaExceeded) {
+			util.Fail(c, 507, "存储空间不足，无法接收该文件")
+			return
+		}
 		util.Fail(c, 500, "转存失败")
-		return
-	}
-	// L1 修复：配额增加改为原子条件更新（并发下防止突破配额），失败则回滚记录
-	if !tryAddQuota(userID, t.FileSize) {
-		db.DB.Delete(&f)
-		util.Fail(c, 507, "存储空间不足，无法接收该文件")
 		return
 	}
 	t.Status = 1

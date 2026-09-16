@@ -28,6 +28,10 @@ interface ApiService {
     @GET("api/auth/me")
     suspend fun me(): ApiResponse<User>
 
+    // ---------- P2P ----------
+    @GET("api/p2p/config")
+    suspend fun p2pConfig(): ApiResponse<P2PConfig>
+
     // ---------- 文件 ----------
     @GET("api/files/list")
     suspend fun listFiles(

@@ -43,6 +43,7 @@ import com.happycloud.android.data.Network
 import com.happycloud.android.data.ShareResult
 import com.happycloud.android.data.safeApi
 import com.happycloud.android.ui.theme.ButtonShape
+import com.happycloud.android.ui.theme.DialogShape
 import kotlinx.coroutines.launch
 
 /** 分享弹窗：创建链接（可选密码）、复制链接 */
@@ -186,12 +187,12 @@ fun ShareDialog(
             }
         },
         dismissButton = {
-            if (result == null) {
-                TextButton(onClick = onDismiss, enabled = !loading) { Text("取消") }
-            } else {
-                TextButton(onClick = ::copyLink) { Text("复制链接") }
-            }
-        },
-        shape = MaterialTheme.shapes.extraLarge,
+                if (result == null) {
+                    TextButton(onClick = onDismiss, enabled = !loading) { Text("取消") }
+                } else {
+                    TextButton(onClick = ::copyLink) { Text("复制链接") }
+                }
+            },
+        shape = DialogShape,
     )
 }

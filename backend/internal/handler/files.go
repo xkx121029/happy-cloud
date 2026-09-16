@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"happy-cloud/backend/config"
+	"happy-cloud/backend/internal/blob"
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/model"
 	"happy-cloud/backend/internal/util"
@@ -83,7 +85,8 @@ func Mkdir(c *gin.Context) {
 	util.OK(c, f)
 }
 
-// UploadHash 秒传校验：同 hash 已存在则直接建记录
+// UploadHash 秒传校验：全站实体（内容寻址）已存在则直接建索引记录。
+// 去重后同一内容只保留一份物理实体，因此秒传可跨用户、跨目录命中。
 func UploadHash(c *gin.Context) {
 	var req struct {
 		Name     string `json:"name" binding:"required"`
@@ -95,24 +98,45 @@ func UploadHash(c *gin.Context) {
 		util.Fail(c, 400, "参数错误")
 		return
 	}
+	// 统一小写：hash 是实体主键，大小写不一致会造成同一内容被当成两个实体
+	req.Hash = strings.ToLower(strings.TrimSpace(req.Hash))
 	userID := uid(c)
 	// L2 修复：秒传同样校验文件名合法性
 	if err := validateName(req.Name); err != nil {
 		util.Fail(c, 400, err.Error())
 		return
 	}
+	if err := checkNameDup(userID, req.ParentID, req.Name); err != nil {
+		util.Fail(c, 409, err.Error())
+		return
+	}
+	// 全局实体命中：任何用户上传过同一内容即可秒传（大小必须一致，防止伪造 hash）
+	if b, err := blob.Get(req.Hash); err == nil && b.Size == req.Size {
+		f := model.File{
+			UserID: userID, ParentID: req.ParentID, Name: req.Name,
+			Type: 1, Size: req.Size, Hash: req.Hash, StoragePath: util.BlobPath(req.Hash),
+		}
+		if err := db.DB.Transaction(func(tx *gorm.DB) error {
+			if _, _, err := blob.Acquire(tx, userID, req.Hash, req.Size); err != nil {
+				return err
+			}
+			return tx.Create(&f).Error
+		}); err != nil {
+			failBlob(c, err)
+			return
+		}
+		LogAction(userID, username(c), "upload", fmt.Sprintf("秒传 %s", req.Name))
+		util.OK(c, gin.H{"exists": true, "file_id": f.ID})
+		return
+	}
+	// 兜底：存量未迁移数据（同一用户同 hash 已有实体）仍走复用
 	var exist model.File
 	err := db.DB.Where("user_id = ? AND hash = ? AND type = 1", userID, req.Hash).
 		Order("id ASC").First(&exist).Error
 	if err == nil && exist.StoragePath != "" {
-		// 秒传：关联同一实体
-		if e := checkNameDup(userID, req.ParentID, req.Name); e != nil {
-			util.Fail(c, 409, e.Error())
-			return
-		}
 		f := model.File{
 			UserID: userID, ParentID: req.ParentID, Name: req.Name,
-			Type: 1, Size: req.Size, Hash: req.Hash, StoragePath: exist.StoragePath,
+			Type: 1, Size: req.Size, Hash: req.Hash, StoragePath: blobPathOf(&exist),
 		}
 		if err := db.DB.Create(&f).Error; err != nil {
 			util.Fail(c, 500, "创建失败")
@@ -150,14 +174,9 @@ func Upload(c *gin.Context) {
 		util.Fail(c, 400, err.Error())
 		return
 	}
-	// 配额检查
 	var u model.User
 	if err := db.DB.First(&u, userID).Error; err != nil || u.Status != 0 {
 		util.Fail(c, 403, "账号不可用")
-		return
-	}
-	if u.QuotaUsed+file.Size > u.QuotaMax {
-		util.Fail(c, 507, "存储空间不足")
 		return
 	}
 	src, err := file.Open()
@@ -172,14 +191,20 @@ func Upload(c *gin.Context) {
 		return
 	}
 	hash := util.SHA256(data)
-	path := util.FilePath(userID, hash)
-	if err := util.EnsureDir(util.UserDir(userID)); err != nil {
-		util.Fail(c, 500, "存储目录异常")
-		return
-	}
-	// 实体已存在（秒传命中）则跳过写盘
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.WriteFile(path, data, 0o644); err != nil {
+	path := util.BlobPath(hash)
+	// 实体已存在（秒传命中）则跳过写盘；否则先写 .part 再改名，避免半成品实体被其他请求读到
+	if !blob.Exists(hash) {
+		if err := util.EnsureDir(filepath.Dir(path)); err != nil {
+			util.Fail(c, 500, "存储目录异常")
+			return
+		}
+		tmp := path + ".part"
+		if err := os.WriteFile(tmp, data, 0o644); err != nil {
+			util.Fail(c, 500, "写入文件失败")
+			return
+		}
+		if err := os.Rename(tmp, path); err != nil {
+			os.Remove(tmp)
 			util.Fail(c, 500, "写入文件失败")
 			return
 		}
@@ -190,14 +215,15 @@ func Upload(c *gin.Context) {
 		UserID: userID, ParentID: uint(parentID), Name: name,
 		Type: 1, Size: file.Size, Hash: hash, StoragePath: path,
 	}
-	if err := db.DB.Create(&f).Error; err != nil {
-		util.Fail(c, 500, "创建记录失败")
-		return
-	}
-	// L1 修复：配额增加改为原子条件更新（并发下防止突破配额），失败则回滚记录
-	if !tryAddQuota(userID, file.Size) {
-		db.DB.Delete(&f)
-		util.Fail(c, 507, "存储空间不足")
+	// 实体登记 + 索引写入同事务：实体首次入库时计费（去重后计费），失败则整体回滚
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if _, _, err := blob.Acquire(tx, userID, hash, file.Size); err != nil {
+			return err
+		}
+		return tx.Create(&f).Error
+	}); err != nil {
+		cleanupUnreferenced(hash, path)
+		failBlob(c, err)
 		return
 	}
 	LogAction(userID, username(c), "upload", fmt.Sprintf("上传 %s (%.1fMB)", name, float64(file.Size)/1024/1024))
@@ -254,7 +280,8 @@ func UploadChunk(c *gin.Context) {
 	util.OK(c, gin.H{"chunk_index": index})
 }
 
-// UploadMerge 合并分片，参数 hash, name, size, parent_id, chunk_total
+// UploadMerge 合并分片，参数 hash, name, size, parent_id, chunk_total。
+// 合并时边写边算 SHA256（不再二次全量读盘），校验通过后直接落到全局实体路径。
 func UploadMerge(c *gin.Context) {
 	var req struct {
 		Hash       string `json:"hash" binding:"required"`
@@ -267,6 +294,8 @@ func UploadMerge(c *gin.Context) {
 		util.Fail(c, 400, "参数错误")
 		return
 	}
+	// 统一小写：hash 是实体主键，大小写不一致会造成同一内容被当成两个实体
+	req.Hash = strings.ToLower(strings.TrimSpace(req.Hash))
 	userID := uid(c)
 	// L2 修复：合并上传同样校验文件名合法性
 	if err := validateName(req.Name); err != nil {
@@ -276,10 +305,6 @@ func UploadMerge(c *gin.Context) {
 	var u model.User
 	if err := db.DB.First(&u, userID).Error; err != nil || u.Status != 0 {
 		util.Fail(c, 403, "账号不可用")
-		return
-	}
-	if u.QuotaUsed+req.Size > u.QuotaMax {
-		util.Fail(c, 507, "存储空间不足")
 		return
 	}
 	// S6 修复：分片目录按用户隔离，避免跨用户分片互相覆盖/混用
@@ -310,64 +335,156 @@ func UploadMerge(c *gin.Context) {
 			return
 		}
 	}
-	path := util.FilePath(userID, req.Hash)
-	if err := util.EnsureDir(util.UserDir(userID)); err != nil {
+	// 全局实体已在册且物理文件在盘：无需合并，直接建索引（跨用户秒传）
+	if b, err := blob.Get(req.Hash); err == nil && b.Size == req.Size && blob.Exists(req.Hash) {
+		os.RemoveAll(dir)
+		if err := createIndexForBlob(c, userID, req.Hash, req.Size, req.Name, req.ParentID, "分片上传"); err != nil {
+			return
+		}
+		return
+	}
+	path := util.BlobPath(req.Hash)
+	if err := util.EnsureDir(filepath.Dir(path)); err != nil {
 		util.Fail(c, 500, "存储目录异常")
 		return
 	}
-	final, err := os.Create(path)
+	// 先写 .merge 中转文件，避免半成品实体被其他请求当作完整内容读到
+	tmp := path + ".merge"
+	final, err := os.Create(tmp)
 	if err != nil {
 		util.Fail(c, 500, "创建文件失败")
 		return
 	}
-	defer final.Close()
+	// 边合并边增量计算 SHA256（原实现合并后再全量读盘一次，大文件下是双倍 IO）
+	h := sha256.New()
+	w := io.MultiWriter(final, h)
 	for _, p := range parts {
 		b, err := os.ReadFile(filepath.Join(dir, strconv.Itoa(p)))
 		if err != nil {
+			final.Close()
+			os.Remove(tmp)
 			util.Fail(c, 400, "分片读取失败")
 			return
 		}
-		if _, err := final.Write(b); err != nil {
+		if _, err := w.Write(b); err != nil {
+			final.Close()
+			os.Remove(tmp)
 			util.Fail(c, 500, "合并写入失败")
 			return
 		}
 	}
 	final.Sync()
+	final.Close()
 	// 校验合并后大小
-	if fi, err := os.Stat(path); err == nil && fi.Size() != req.Size {
+	if fi, err := os.Stat(tmp); err != nil || fi.Size() != req.Size {
+		os.Remove(tmp)
 		util.Fail(c, 400, "合并文件大小不一致")
 		return
 	}
-	// M12 修复：重新计算合并文件内容 SHA256 并与请求 hash 比对，防止客户端伪造 hash 命中错误秒传内容
-	if got, err := hashFile(path); err != nil || got != req.Hash {
-		os.Remove(path)
+	// M12 修复：比对增量计算的 SHA256 与请求 hash，防止客户端伪造 hash 命中错误秒传内容
+	if got := hex.EncodeToString(h.Sum(nil)); got != req.Hash {
+		os.Remove(tmp)
 		util.Fail(c, 400, "文件内容校验失败")
 		return
 	}
 	// 清理临时分片
 	os.RemoveAll(dir)
-	name := uniqueName(userID, req.ParentID, req.Name)
+	if blob.Exists(req.Hash) {
+		// 并发场景下其他请求已生成同一实体，直接复用
+		os.Remove(tmp)
+	} else if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		util.Fail(c, 500, "写入文件失败")
+		return
+	}
+	if err := createIndexForBlob(c, userID, req.Hash, req.Size, req.Name, req.ParentID, "分片上传"); err != nil {
+		return
+	}
+}
+
+// createIndexForBlob 实体已在盘时的索引写入：登记引用（首次引用者计费）+ 建立文件索引，
+// 两者同事务提交；失败则回收无引用实体。成功时直接写出响应。
+func createIndexForBlob(c *gin.Context, userID uint, hash string, size int64, name string, parentID uint, action string) error {
+	name = uniqueName(userID, parentID, name)
 	f := model.File{
-		UserID: userID, ParentID: req.ParentID, Name: name,
-		Type: 1, Size: req.Size, Hash: req.Hash, StoragePath: path,
+		UserID: userID, ParentID: parentID, Name: name,
+		Type: 1, Size: size, Hash: hash, StoragePath: util.BlobPath(hash),
 	}
-	if err := db.DB.Create(&f).Error; err != nil {
-		util.Fail(c, 500, "创建记录失败")
-		return
-	}
-	// L1 修复：配额增加改为原子条件更新，失败则回滚记录与实体
-	if !tryAddQuota(userID, req.Size) {
-		db.DB.Delete(&f)
-		var refs int64
-		db.DB.Model(&model.File{}).Where("hash = ? AND type = 1", req.Hash).Count(&refs)
-		if refs == 0 {
-			os.Remove(path)
+	path := util.BlobPath(hash)
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if _, _, err := blob.Acquire(tx, userID, hash, size); err != nil {
+			return err
 		}
-		util.Fail(c, 507, "存储空间不足")
+		return tx.Create(&f).Error
+	}); err != nil {
+		cleanupUnreferenced(hash, path)
+		failBlob(c, err)
+		return err
+	}
+	LogAction(userID, username(c), "upload", fmt.Sprintf("%s %s (%.1fMB)", action, name, float64(size)/1024/1024))
+	util.OK(c, f)
+	return nil
+}
+
+// UploadStatus 断点续传查询：返回该 hash 已成功上传的分片序号；
+// 若全站实体已存在（内容寻址命中）则 exists=true，客户端可直接跳过全部分片调秒传接口。
+func UploadStatus(c *gin.Context) {
+	hash := strings.ToLower(strings.TrimSpace(c.Query("hash")))
+	if hash == "" {
+		util.Fail(c, 400, "参数错误")
 		return
 	}
-	LogAction(userID, username(c), "upload", fmt.Sprintf("分片上传 %s (%.1fMB)", name, float64(req.Size)/1024/1024))
-	util.OK(c, f)
+	if b, err := blob.Get(hash); err == nil && blob.Exists(hash) {
+		util.OK(c, gin.H{"exists": true, "size": b.Size, "uploaded": []int{}})
+		return
+	}
+	dir := util.ChunkDir(uid(c), hash)
+	uploaded := []int{}
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			if n, err := strconv.Atoi(e.Name()); err == nil {
+				uploaded = append(uploaded, n)
+			}
+		}
+	}
+	sort.Ints(uploaded)
+	util.OK(c, gin.H{"exists": false, "size": 0, "uploaded": uploaded})
+}
+
+// FileDetail 文件详情：索引信息 + 全局实体信息（引用数、真实大小、计费归属、是否去重共享），
+// 让"服务器只存一份、删除只删索引"对用户可见。
+func FileDetail(c *gin.Context) {
+	userID := uid(c)
+	fid, _ := strconv.Atoi(c.Query("file_id"))
+	var f model.File
+	if err := db.DB.Where("id = ? AND user_id = ?", fid, userID).First(&f).Error; err != nil {
+		util.Fail(c, 404, "文件不存在")
+		return
+	}
+	detail := gin.H{
+		"file":          f,
+		"ref_count":     0,
+		"blob_size":     f.Size,
+		"billed_self":   false,
+		"on_disk":       false,
+		"dedup":         false,
+		"storage_path":  blobPathOf(&f),
+		"migrated":      false,
+	}
+	if f.Type == 1 && f.Hash != "" {
+		if b, err := blob.Get(f.Hash); err == nil {
+			detail["ref_count"] = b.RefCount
+			detail["blob_size"] = b.Size
+			detail["billed_self"] = b.BilledUserID == userID
+			detail["on_disk"] = blob.Exists(f.Hash)
+			detail["dedup"] = b.RefCount > 1
+			detail["migrated"] = true
+		}
+	}
+	util.OK(c, detail)
 }
 
 // Download 下载文件流
@@ -383,13 +500,14 @@ func Download(c *gin.Context) {
 		util.Fail(c, 400, "文件夹不可下载")
 		return
 	}
-	if _, err := os.Stat(f.StoragePath); err != nil {
+	path := blobPathOf(&f)
+	if _, err := os.Stat(path); err != nil {
 		util.Fail(c, 404, "文件实体缺失")
 		return
 	}
 	// L4 修复：使用 RFC 5987 百分号编码（空格为 %20），避免 url.QueryEscape 把空格变成 + 导致部分浏览器文件名错误
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", rfc5987Encode(f.Name)))
-	c.File(f.StoragePath)
+	c.File(path)
 }
 
 // Rename 重命名
@@ -733,7 +851,8 @@ func Preview(c *gin.Context) {
 		util.Fail(c, 400, "文件夹不可预览")
 		return
 	}
-	if _, err := os.Stat(f.StoragePath); err != nil {
+	path := blobPathOf(&f)
+	if _, err := os.Stat(path); err != nil {
 		util.Fail(c, 404, "文件实体缺失")
 		return
 	}
@@ -742,7 +861,7 @@ func Preview(c *gin.Context) {
 	switch ext {
 	case ".png":
 		ctype = "image/png"
-	case ".jpg", ".jpeg":
+	case ".jpg", ".jpeg", ".jfif":
 		ctype = "image/jpeg"
 	case ".gif":
 		ctype = "image/gif"
@@ -750,15 +869,25 @@ func Preview(c *gin.Context) {
 		ctype = "image/webp"
 	case ".bmp":
 		ctype = "image/bmp"
+	case ".ico":
+		ctype = "image/x-icon"
+	case ".apng":
+		ctype = "image/apng"
+	case ".avif":
+		ctype = "image/avif"
 	// M2 修复：按扩展名精确映射视频/音频 MIME，修复 webm/ogg/mov/wav/flac 等因错误类型无法播放的问题
 	case ".mp4", ".m4v":
 		ctype = "video/mp4"
 	case ".webm":
 		ctype = "video/webm"
-	case ".ogg":
+	case ".ogg", ".ogv":
 		ctype = "video/ogg"
 	case ".mov":
 		ctype = "video/quicktime"
+	case ".mkv":
+		ctype = "video/x-matroska"
+	case ".3gp":
+		ctype = "video/3gpp"
 	case ".mp3":
 		ctype = "audio/mpeg"
 	case ".wav":
@@ -769,6 +898,12 @@ func Preview(c *gin.Context) {
 		ctype = "audio/mp4"
 	case ".aac":
 		ctype = "audio/aac"
+	case ".opus", ".oga":
+		ctype = "audio/ogg"
+	case ".weba":
+		ctype = "audio/webm"
+	case ".aif", ".aiff":
+		ctype = "audio/aiff"
 	case ".pdf":
 		ctype = "application/pdf"
 	case ".txt", ".md", ".log", ".json", ".yaml", ".yml", ".csv":
@@ -778,11 +913,46 @@ func Preview(c *gin.Context) {
 	case ".html", ".htm":
 		ctype = "text/plain; charset=utf-8"
 	default:
-		ctype = "application/octet-stream"
+		// 代码/配置/字幕等纯文本类一律按纯文本内联，供前端文本预览
+		if isTextExt(ext) {
+			ctype = "text/plain; charset=utf-8"
+		} else {
+			ctype = "application/octet-stream"
+		}
 	}
 	c.Header("Content-Type", ctype)
 	c.Header("Content-Disposition", "inline")
-	c.File(f.StoragePath)
+	// 预览走 Range 分片读取（c.File 内部由 http.ServeFile 处理），允许拖动进度条与边下边播
+	c.Header("Accept-Ranges", "bytes")
+	// token 可能经 URL 传递，禁止 Referer 外泄到第三方
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("Cache-Control", "private, max-age=0")
+	c.File(path)
+}
+
+// isTextExt 判断扩展名是否属于可安全按纯文本内联的代码/配置/字幕类
+func isTextExt(ext string) bool {
+	if ext == "" {
+		return false
+	}
+	switch ext {
+	case ".jsonl", ".ndjson", ".jsonc", ".geojson",
+		".toml", ".ini", ".conf", ".cfg", ".properties", ".env", ".editorconfig",
+		".tsv", ".xml", ".plist",
+		".css", ".scss", ".less", ".sass", ".styl",
+		".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".vue", ".svelte", ".astro",
+		".go", ".py", ".rb", ".php", ".java", ".kt", ".kts", ".scala", ".groovy",
+		".rs", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".cs", ".swift", ".m", ".mm",
+		".dart", ".lua", ".r", ".pl", ".pm", ".ex", ".exs", ".erl", ".hs", ".clj",
+		".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
+		".sql", ".graphql", ".gql", ".proto", ".thrift",
+		".diff", ".patch", ".srt", ".vtt", ".ass", ".ssa",
+		".tex", ".rst", ".adoc", ".org", ".textile",
+		".gradle", ".cmake", ".mk", ".lock",
+		".pem", ".crt", ".key", ".pub":
+		return true
+	}
+	return false
 }
 
 // StorageOverview 存储概览：配额 + 按类别统计占用，用于前端可视化
@@ -817,7 +987,56 @@ func StorageOverview(c *gin.Context) {
 		"quota_max":  u.QuotaMax,
 		"quota_used": u.QuotaUsed,
 		"categories": gin.H{"image": image, "video": video, "audio": audio, "doc": doc, "other": other},
+		"dedup":      dedupStats(userID, files),
 	})
+}
+
+// dedupStats 去重统计：同一内容（hash）在全站只存一份，本用户的逻辑占用与去重后实际占用之差即节省量
+func dedupStats(userID uint, files []model.File) gin.H {
+	logical := int64(0)
+	sizes := map[string]int64{} // 每个唯一内容只计一次
+	for _, f := range files {
+		logical += f.Size
+		if _, ok := sizes[f.Hash]; !ok {
+			sizes[f.Hash] = f.Size
+		}
+	}
+	hashes := make([]string, 0, len(sizes))
+	for h := range sizes {
+		if h != "" {
+			hashes = append(hashes, h)
+		}
+	}
+	blobSizes := map[string]int64{}
+	if len(hashes) > 0 {
+		var bs []model.Blob
+		db.DB.Select("hash, size").Where("hash IN ?", hashes).Find(&bs)
+		for _, b := range bs {
+			blobSizes[b.Hash] = b.Size
+		}
+	}
+	physical := int64(0)
+	for h, sz := range sizes {
+		if s, ok := blobSizes[h]; ok {
+			physical += s
+		} else {
+			physical += sz // 未迁移存量按其自身大小计入
+		}
+	}
+	saved := logical - physical
+	if saved < 0 {
+		saved = 0
+	}
+	var charged int64
+	db.DB.Model(&model.Blob{}).Where("billed_user_id = ?", userID).Count(&charged)
+	return gin.H{
+		"file_count":     len(files),
+		"unique_count":   len(sizes),
+		"logical_bytes":  logical,
+		"physical_bytes": physical,
+		"saved_bytes":    saved,
+		"charged_count":  charged,
+	}
 }
 
 // Quota 空间用量
@@ -964,18 +1183,40 @@ func rfc5987Encode(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
-// hashFile 流式计算文件内容 SHA256，避免大文件整体读入内存（M12）
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
+// blobPathOf 返回索引对应的实体物理路径：优先全局内容寻址路径（实体已存在时），
+// 否则回退到记录里的 StoragePath（仅未迁移的存量数据会走这里）。
+func blobPathOf(f *model.File) string {
+	if f == nil {
+		return ""
 	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	if f.Hash != "" {
+		p := util.BlobPath(f.Hash)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return f.StoragePath
+}
+
+// failBlob 实体登记或索引写入失败时的统一响应（配额不足 → 507，其余 → 500）
+func failBlob(c *gin.Context, err error) {
+	if errors.Is(err, blob.ErrQuotaExceeded) {
+		util.Fail(c, 507, "存储空间不足")
+		return
+	}
+	util.Fail(c, 500, "创建记录失败")
+}
+
+// cleanupUnreferenced 事务失败后的兜底清理：实体尚未登记（无人引用）时删除刚写入的物理文件，
+// 避免留下无索引的孤儿实体；若已被其他请求抢先登记则保留。
+func cleanupUnreferenced(hash, path string) {
+	if hash == "" {
+		return
+	}
+	if _, err := blob.Get(hash); err == nil {
+		return
+	}
+	os.Remove(path)
 }
 
 // trashRoots 从待处理文件 ID 列表中过滤出"根节点"：父文件夹也在回收站中的条目会被剔除，
@@ -1082,7 +1323,9 @@ func restoreTree(userID uint, f *model.File) error {
 	})
 }
 
-// purgeTreeWithTx 递归彻底删除文件/文件夹（物理删除）并扣减配额（事务内执行）
+// purgeTreeWithTx 递归彻底删除文件/文件夹（物理删除）并释放实体引用（事务内执行）。
+// "用户删除只删除索引，不删除源文件"：物理实体由 blob.Release 统一裁决——
+// 全站仍有任何索引（含他人、含回收站）引用则保留；引用归零才回收实体并退还配额。
 func purgeTreeWithTx(tx *gorm.DB, userID uint, uname string, f *model.File) error {
 	// S1 修复：确认记录仍存在，避免对已被递归删除的节点再次处理导致配额重复扣减
 	var exist model.File
@@ -1099,24 +1342,18 @@ func purgeTreeWithTx(tx *gorm.DB, userID uint, uname string, f *model.File) erro
 			}
 		}
 	}
-	// 删除实体：仅当全站无其他记录引用同一 hash 时才删磁盘
-	// （转送/共享等场景下多用户可能复用同一实体，需跨用户统计引用）
-	if f.Type == 1 && f.StoragePath != "" {
-		var refs int64
-		tx.Model(&model.File{}).
-			Where("hash = ? AND type = 1", f.Hash).
-			Count(&refs)
-		if refs <= 1 {
-			os.Remove(f.StoragePath)
-		}
-		tx.Model(&model.User{}).Where("id = ?", userID).
-			UpdateColumn("quota_used", gorm.Expr("GREATEST(quota_used - ?, 0)", f.Size))
-	}
+	fType, fHash, fSize, fPath := f.Type, f.Hash, f.Size, f.StoragePath
 	// 清理收藏与分享关联
 	tx.Where("file_id = ?", f.ID).Delete(&model.Favorite{})
 	tx.Where("file_id = ?", f.ID).Delete(&model.Share{})
 	if err := tx.Delete(f).Error; err != nil {
 		return err
+	}
+	// 索引已删除后再释放实体引用（userHasHash 需要看到删除后的状态）
+	if fType == 1 {
+		if err := blob.Release(tx, userID, fHash, fSize, fPath); err != nil {
+			return err
+		}
 	}
 	LogAction(userID, uname, "purge", fmt.Sprintf("彻底删除 %s", f.Name))
 	return nil
