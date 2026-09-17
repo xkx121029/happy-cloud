@@ -150,13 +150,29 @@ func AcceptTransfer(c *gin.Context) {
 		UserID: userID, ParentID: 0, Name: name,
 		Type: 1, Size: t.FileSize, Hash: src.Hash, StoragePath: srcPath,
 	}
-	// 实体登记 + 索引写入同事务：接收方只新增索引，不再重复占用磁盘；
-	// 计费按去重后归属（该实体已被他人计费时接收方不再重复计费），配额不足时整体回滚
+	// 实体登记 + 索引写入 + 转送状态 + 通知已读全部同事务（Bug14 修复）：
+	// 原实现状态更新与通知已读在事务外，若 Save(&t) 失败，接收方文件已建立而转送仍为
+	// pending，接收方可重复接受同一文件产生重复索引；现并入事务保证原子性，
+	// 并用 status=0 条件更新拦截并发重复接受
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
 		if _, _, err := blob.Acquire(tx, userID, src.Hash, t.FileSize); err != nil {
 			return err
 		}
-		return tx.Create(&f).Error
+		if err := tx.Create(&f).Error; err != nil {
+			return err
+		}
+		res := tx.Model(&model.Transfer{}).
+			Where("id = ? AND status = 0", t.ID).Update("status", 1)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errors.New("该转送已处理")
+		}
+		// 关联通知标记已读
+		return tx.Model(&model.Notification{}).
+			Where("user_id = ? AND transfer_id = ?", userID, t.ID).
+			Update("is_read", 1).Error
 	}); err != nil {
 		if errors.Is(err, blob.ErrQuotaExceeded) {
 			util.Fail(c, 507, "存储空间不足，无法接收该文件")
@@ -165,12 +181,6 @@ func AcceptTransfer(c *gin.Context) {
 		util.Fail(c, 500, "转存失败")
 		return
 	}
-	t.Status = 1
-	db.DB.Save(&t)
-	// 关联通知标记已读
-	db.DB.Model(&model.Notification{}).
-		Where("user_id = ? AND transfer_id = ?", userID, t.ID).
-		Update("is_read", 1)
 	LogAction(userID, username(c), "transfer", fmt.Sprintf("接受文件 %s", t.FileName))
 	util.OK(c, f)
 }

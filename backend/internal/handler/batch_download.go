@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -75,6 +76,32 @@ func BatchDownload(c *gin.Context) {
 		return
 	}
 
+	// Bug15 修复：对本次选中的文件夹递归加载其全部子树（is_deleted=0）并补入打包列表，
+	// 原实现 childrenMap 仅由选中的 ids 构建，选中文件夹而未选其子项时 zip 中该文件夹为空目录
+	queue := append([]fileEntry(nil), entries...)
+	for len(queue) > 0 {
+		e := queue[0]
+		queue = queue[1:]
+		if !e.isDir {
+			continue
+		}
+		var children []model.File
+		if err := db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, e.id).
+			Order("type DESC, name ASC").Find(&children).Error; err != nil {
+			continue
+		}
+		for i := range children {
+			ch := children[i]
+			if seen[ch.ID] {
+				continue
+			}
+			seen[ch.ID] = true
+			ce := fileEntry{id: ch.ID, name: ch.Name, parent: ch.ParentID, isDir: ch.Type == 0, hash: ch.Hash, size: ch.Size}
+			entries = append(entries, ce)
+			queue = append(queue, ce)
+		}
+	}
+
 	// 建立 parent→children 索引（只包含本次选中的条目）
 	childrenMap := make(map[uint][]fileEntry)
 	for _, e := range entries {
@@ -96,7 +123,7 @@ func BatchDownload(c *gin.Context) {
 	c.Header("Content-Type", "application/zip")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 
-zw := zip.NewWriter(c.Writer)
+	zw := zip.NewWriter(c.Writer)
 
 	var collect func(parentID uint, path string) error
 	collect = func(parentID uint, path string) error {
@@ -105,8 +132,8 @@ zw := zip.NewWriter(c.Writer)
 			if e.isDir {
 				// 写入目录条目
 				h := &zip.FileHeader{
-					Name:            entryPath + "/",
-					Method:          zip.Store,
+					Name:             entryPath + "/",
+					Method:           zip.Store,
 					UncompressedSize: 0,
 				}
 				h.SetModTime(time.Now())
@@ -133,10 +160,14 @@ zw := zip.NewWriter(c.Writer)
 				// 从实体读取内容并写入 zip
 				p := blobPathOfForHash(e.hash)
 				if p == "" {
+					// Bug15 修复：实体缺失时记录警告日志，避免用户拿到缺文件的 zip 却无提示（zip 结构不变）
+					log.Printf("[BatchDownload] 文件 #%d %s 实体缺失（hash=%s），已跳过", e.id, e.name, e.hash)
 					continue // 实体缺失跳过
 				}
 				fr, err := os.Open(p)
 				if err != nil {
+					// Bug15 修复：打开失败时记录警告日志，提示用户 zip 可能缺少该文件
+					log.Printf("[BatchDownload] 打开文件 #%d %s 失败: %v，已跳过", e.id, e.name, err)
 					continue
 				}
 				if _, err := io.Copy(fw, fr); err != nil {

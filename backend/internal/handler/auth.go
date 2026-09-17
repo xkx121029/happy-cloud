@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -94,30 +96,53 @@ func Login(c *gin.Context) {
 	util.OK(c, gin.H{"token": token, "user": user})
 }
 
-// InitAdmin 启动时确保管理员账号存在，若 ADMIN_PASSWORD 非空则强制重置密码
+// InitAdmin 启动时确保管理员账号存在（B11 修复）：
+//   - admin 已存在则不动密码，不再每次启动重置为默认弱口令；
+//   - admin 不存在才创建：显式设置 ADMIN_PASSWORD 时使用该值，未设置时用 crypto/rand 生成
+//     随机强密码并打印到日志，要求用户登录后立即修改。
+//
+// 原逻辑：若 ADMIN_PASSWORD 非空则无条件创建或重置密码（默认值为弱口令 "password"）。
 func InitAdmin() {
-	if config.Cfg.AdminPassword == "" {
-		return
-	}
 	var user model.User
 	err := db.DB.Where("username = ?", config.Cfg.AdminUser).First(&user).Error
-	hashed, _ := bcrypt.GenerateFromPassword([]byte(config.Cfg.AdminPassword), bcrypt.DefaultCost)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		user = model.User{
-			Username: config.Cfg.AdminUser,
-			Password: string(hashed),
-			Role:     1,
-			Status:   0,
-			QuotaMax: 1024 * 1024 * 1024 * 1024,
-		}
-		if err := db.DB.Create(&user).Error; err != nil {
-			log.Printf("[InitAdmin] 创建管理员账号失败: %v", err)
+	if err == nil {
+		return // 管理员已存在，不重置密码
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("[InitAdmin] 查询管理员账号失败: %v", err)
+		return
+	}
+	password := config.Cfg.AdminPassword
+	fromEnv := password != ""
+	if !fromEnv {
+		// 未显式设置 ADMIN_PASSWORD：生成随机强密码（24 字节随机值 hex 编码为 48 位十六进制）
+		buf := make([]byte, 24)
+		if _, e := rand.Read(buf); e != nil {
+			log.Printf("[InitAdmin] 生成随机密码失败: %v", e)
 			return
 		}
-		log.Printf("[InitAdmin] 已创建管理员账号 %s", config.Cfg.AdminUser)
-	} else if err == nil {
-		db.DB.Model(&user).Update("password", string(hashed))
-		log.Printf("[InitAdmin] 已重置管理员 %s 密码", config.Cfg.AdminUser)
+		password = hex.EncodeToString(buf)
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		log.Printf("[InitAdmin] 密码加密失败: %v", err)
+		return
+	}
+	user = model.User{
+		Username: config.Cfg.AdminUser,
+		Password: string(hashed),
+		Role:     1,
+		Status:   0,
+		QuotaMax: 1024 * 1024 * 1024 * 1024,
+	}
+	if err := db.DB.Create(&user).Error; err != nil {
+		log.Printf("[InitAdmin] 创建管理员账号失败: %v", err)
+		return
+	}
+	if fromEnv {
+		log.Printf("[InitAdmin] 已创建管理员账号 %s（密码来自 ADMIN_PASSWORD 环境变量）", config.Cfg.AdminUser)
+	} else {
+		log.Printf("[InitAdmin] 已创建管理员账号 %s，初始随机密码：%s（请登录后立即修改）", config.Cfg.AdminUser, password)
 	}
 }
 

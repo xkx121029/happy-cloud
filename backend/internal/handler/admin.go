@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -83,11 +84,30 @@ func DeleteUser(c *gin.Context) {
 		util.Fail(c, 404, "用户不存在")
 		return
 	}
+	// Bug13 修复：删除用户前清理其关联记录（收藏、标签、文件-标签），避免残留孤儿关联数据；
+	// FileTag 无 user_id 字段，按本用户文件/标签归属清理
+	var tagIDs []uint
+	db.DB.Model(&model.Tag{}).Where("user_id = ?", u.ID).Pluck("id", &tagIDs)
+	var fileIDs []uint
+	db.DB.Model(&model.File{}).Where("user_id = ?", u.ID).Pluck("id", &fileIDs)
+	db.DB.Where("user_id = ?", u.ID).Delete(&model.Favorite{})
+	db.DB.Where("user_id = ?", u.ID).Delete(&model.Tag{})
+	db.DB.Where("tag_id IN ?", tagIDs).Delete(&model.FileTag{})
+	db.DB.Where("file_id IN ?", fileIDs).Delete(&model.FileTag{})
+
 	// 递归删除该用户所有文件（含磁盘实体）
 	var roots []model.File
 	db.DB.Where("user_id = ? AND parent_id = 0", u.ID).Find(&roots)
+	// Bug13 修复：收集 purgeTree 返回的错误并汇总记录，
+	// 原实现忽略返回值，子文件删除/实体释放失败被吞，可能残留孤儿索引与磁盘实体
+	var purgeErrs []string
 	for i := range roots {
-		purgeTree(u.ID, u.Username, &roots[i])
+		if err := purgeTree(u.ID, u.Username, &roots[i]); err != nil {
+			purgeErrs = append(purgeErrs, fmt.Sprintf("文件 #%d: %v", roots[i].ID, err))
+		}
+	}
+	if len(purgeErrs) > 0 {
+		adminLog(c, "delete_user_purge_error", "purge 部分失败 "+strings.Join(purgeErrs, "; "))
 	}
 	db.DB.Where("user_id = ?", u.ID).Delete(&model.Share{})
 	db.DB.Delete(&u)

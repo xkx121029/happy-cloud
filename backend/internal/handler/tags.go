@@ -89,15 +89,10 @@ func SetFileTags(c *gin.Context) {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
-	if err := tag.RemoveFile(req.FileID); err != nil {
+	// 单事务内删除旧标签关联并新增新标签关联（含标签归属校验），保证原子性
+	if err := tag.SetFileTags(req.FileID, userID, req.TagIDs); err != nil {
 		util.Fail(c, 500, "更新标签失败")
 		return
-	}
-	if len(req.TagIDs) > 0 {
-		if err := tag.AddFile(req.FileID, req.TagIDs); err != nil {
-			util.Fail(c, 500, "更新标签失败")
-			return
-		}
 	}
 	LogAction(userID, username(c), "set_tags", fmt.Sprintf("文件 %s 设置标签 ids=%v", f.Name, req.TagIDs))
 	util.OK(c, gin.H{"ok": true})
@@ -108,6 +103,13 @@ func GetFileTags(c *gin.Context) {
 	fileID, _ := strconv.Atoi(c.Param("id"))
 	if fileID <= 0 {
 		util.Fail(c, 400, "参数错误")
+		return
+	}
+	userID := uid(c)
+	// 校验文件归属，防止越权读取他人文件的标签（IDOR 防护）
+	var f model.File
+	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", uint(fileID), userID).First(&f).Error; err != nil {
+		util.Fail(c, 404, "文件不存在")
 		return
 	}
 	tags, err := tag.GetTags(uint(fileID))

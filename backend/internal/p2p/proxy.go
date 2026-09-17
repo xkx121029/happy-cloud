@@ -4,13 +4,55 @@ package p2p
 
 import (
 	"bytes"
+	"log"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 )
 
+// validMethod 校验 HTTP 方法白名单：仅允许标准读写方法
+func validMethod(m string) bool {
+	switch m {
+	case "GET", "POST", "PUT", "PATCH", "DELETE":
+		return true
+	}
+	return false
+}
+
+// validPath 校验请求路径：必须以 '/' 开头且不含空白/控制字符
+// （httptest.NewRequest 对非法 RequestURI 内部会 panic，必须在调用前拦截）
+func validPath(p string) bool {
+	if len(p) == 0 || p[0] != '/' {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		if p[i] <= 0x20 || p[i] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 func (t *Tunnel) handleJSON(env Envelope) {
+	// 兜底：DataChannel 回调 goroutine 不在 gin Recovery 保护栈内，任何 panic
+	// 都会终止整个进程，此处 recover 防止异步回调崩溃（Bug2 修复）
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[p2p] 隧道 JSON 处理 panic 已捕获: %v", r)
+			t.send(Envelope{T: "E", ID: env.ID, C: 400, Msg: "参数错误"}, nil)
+		}
+	}()
 	if env.P == "" || env.M == "" {
+		t.send(Envelope{T: "E", ID: env.ID, C: 400, Msg: "参数错误"}, nil)
+		return
+	}
+	// 校验 HTTP 方法白名单：仅允许 GET/POST/PUT/PATCH/DELETE
+	if !validMethod(env.M) {
+		t.send(Envelope{T: "E", ID: env.ID, C: 400, Msg: "参数错误"}, nil)
+		return
+	}
+	// 校验路径：必须以 '/' 开头且不含空白/控制字符，防止 httptest.NewRequest panic
+	if !validPath(env.P) {
 		t.send(Envelope{T: "E", ID: env.ID, C: 400, Msg: "参数错误"}, nil)
 		return
 	}

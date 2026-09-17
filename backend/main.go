@@ -96,7 +96,9 @@ func main() {
 		share.GET("/:token", handler.GetShare)
 		share.GET("/:token/download", handler.DownloadShare)
 		share.GET("/mine/list", middleware.Auth(), handler.ListMyShares)
-		share.DELETE("/mine/:id", middleware.Auth(), handler.DeleteShare)
+		// B6 修复：路由参数与 handler DeleteShare 读取的 c.Param("token") 统一为 :token
+		// 原逻辑：share.DELETE("/mine/:id", ...) —— 参数名不匹配恒为空串导致删除恒 404
+		share.DELETE("/mine/:token", middleware.Auth(), handler.DeleteShare)
 
 		admin := api.Group("/admin", middleware.Auth(), middleware.Admin())
 		admin.GET("/users", handler.ListUsers)

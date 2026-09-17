@@ -36,18 +36,45 @@ func List(userID uint) ([]model.Tag, error) {
 	return tags, nil
 }
 
-// AddFile 为文件添加标签
-func AddFile(fileID uint, tagIDs []uint) error {
+// AddFile 为文件添加标签（校验标签归属，只能关联当前用户自己的标签）
+func AddFile(fileID, userID uint, tagIDs []uint) error {
+	return addFile(db.DB, fileID, userID, tagIDs)
+}
+
+// addFile 在指定 DB（dbx）上为文件添加标签，逐条校验标签归属
+func addFile(dbx *gorm.DB, fileID, userID uint, tagIDs []uint) error {
 	for _, tid := range tagIDs {
+		// 校验标签归属：按 (id, user_id) 校验，标签必须属于当前用户，防止跨用户标签串扰
+		var t model.Tag
+		if err := dbx.Where("id = ? AND user_id = ?", tid, userID).First(&t).Error; err != nil {
+			return fmt.Errorf("标签不存在或不属于当前用户: %w", err)
+		}
 		var exist model.FileTag
-		if err := db.DB.Where("file_id = ? AND tag_id = ?", fileID, tid).First(&exist).Error; err == nil {
+		if err := dbx.Where("file_id = ? AND tag_id = ?", fileID, tid).First(&exist).Error; err == nil {
 			continue
 		}
-		if err := db.DB.Create(&model.FileTag{FileID: fileID, TagID: tid}).Error; err != nil {
+		if err := dbx.Create(&model.FileTag{FileID: fileID, TagID: tid}).Error; err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// SetFileTags 在单个事务内替换文件的标签（先删旧关联，再建新关联），保证原子性
+func SetFileTags(fileID, userID uint, tagIDs []uint) error {
+	return db.DB.Transaction(func(tx *gorm.DB) error {
+		// 删除旧标签关联
+		if err := tx.Where("file_id = ?", fileID).Delete(&model.FileTag{}).Error; err != nil {
+			return err
+		}
+		// 新增新标签关联（含归属校验）
+		if len(tagIDs) > 0 {
+			if err := addFile(tx, fileID, userID, tagIDs); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // RemoveFile 移除文件的所有标签关联

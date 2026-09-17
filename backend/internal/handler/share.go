@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -40,8 +42,14 @@ func Share(c *gin.Context) {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
-	// 生成分享 token：32 位随机 hex
-	token := fmt.Sprintf("%032x", time.Now().UnixNano())
+	// 生成分享 token：crypto/rand 生成 32 字节随机值，hex 编码为 64 位十六进制，不可预测/枚举
+	// 原逻辑：token := fmt.Sprintf("%032x", time.Now().UnixNano()) —— 仅依赖纳秒时间戳，可被预测/枚举
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		util.Fail(c, 500, "生成分享链接失败")
+		return
+	}
+	token := hex.EncodeToString(tokenBytes)
 	s := model.Share{
 		Token:    token,
 		UserID:   userID,

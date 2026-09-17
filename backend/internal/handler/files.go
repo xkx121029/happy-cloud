@@ -50,6 +50,29 @@ func extGroup(ext string) int {
 	}
 }
 
+// sortByFields 排序字段白名单（L1 修复：仅允许枚举值，非法回退默认，禁止用户可控字符串进入 SQL）
+var sortByFields = map[string]bool{"name": true, "date": true, "size": true, "type": true}
+
+// sortDirSQL 排序方向白名单映射：用户输入 asc/desc → 常量 SQL 关键字（L1 修复，禁止用户可控字符串进入 SQL）
+var sortDirSQL = map[string]string{"asc": "ASC", "desc": "DESC"}
+
+// extGroupCaseSQL 按扩展名分组计算排序序号的 CASE 表达式（与 extGroup 分组一致；L7 修复：GORM Order 配合使用，纯常量无用户输入）
+const extGroupCaseSQL = `CASE
+	WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('png','jpg','jpeg','gif','webp','svg','bmp','ico','avif') THEN 1
+	WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('mp4','webm','ogg','mov','m4v','avi','mkv','flv') THEN 2
+	WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('mp3','wav','flac','m4a','aac','opus') THEN 3
+	WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('pdf','txt','md','doc','docx','xls','xlsx','ppt','pptx','csv','json','yaml','yml','log') THEN 4
+	ELSE 5
+END`
+
+// L16 修复：Move/BatchMove 事务内错误标记，用于事务外映射响应状态码
+var (
+	errFileNotFound = errors.New("文件不存在")
+	errMoveToSelf   = errors.New("不能移动到自身")
+	errMoveSave     = errors.New("移动失败")
+	errNameDup      = errors.New("同名文件或文件夹已存在")
+)
+
 // ListFiles 文件列表，参数 parent_id
 func ListFiles(c *gin.Context) {
 	parentID, _ := strconv.Atoi(c.DefaultQuery("parent_id", "0"))
@@ -64,19 +87,30 @@ func ListFiles(c *gin.Context) {
 	userID := uid(c)
 	// 排序参数：by=name|date|size|type；asc/desc（name/type 默认升序，date/size 默认降序）
 	by := c.DefaultQuery("by", "name")
+	// L1 修复：by 白名单校验（仅允许枚举值），非法回退默认，禁止用户可控字符串进入 SQL
+	if !sortByFields[by] {
+		by = "name"
+	}
 	dir := c.DefaultQuery("dir", "desc")
+	// L1 修复：dir 白名单校验，非法回退默认；合法值映射为常量 SQL 关键字 ASC/DESC
+	if d, ok := sortDirSQL[dir]; ok {
+		dir = d
+	} else {
+		dir = sortDirSQL["desc"]
+	}
 	// 标签筛选：逗号分隔的 tag_id 列表，文件需包含所有指定标签
 	tagIDsParam := c.Query("tag_ids")
 	// 文件夹始终置顶（type=0 在前），再按排序字段排列
 	var orderStr string
 	switch by {
 	case "date":
-		orderStr = fmt.Sprintf("type ASC, %s %s", "created_at", dir)
+		// L1 修复：dir 已白名单映射为常量 ASC/DESC，此拼接安全（原实现直接拼接用户输入 dir）
+		orderStr = "type ASC, created_at " + dir
 	case "size":
-		orderStr = fmt.Sprintf("type ASC, %s %s", "size", dir)
+		orderStr = "type ASC, size " + dir
 	case "type":
 		// 按扩展名类型分组（文件夹已在最前），同组内按名称字母序
-		if dir == "desc" {
+		if dir == "DESC" {
 			orderStr = "type ASC, ext_group ASC, name DESC"
 		} else {
 			orderStr = "type ASC, ext_group ASC, name ASC"
@@ -97,14 +131,14 @@ func ListFiles(c *gin.Context) {
 		}
 		if len(ids) > 0 {
 			// 使用子查询：file_tags 必须包含所有指定标签
-			cond := "1=1"
-			for i, tid := range ids {
-				if i > 0 {
-					cond += " AND "
-				}
-				cond += fmt.Sprintf("EXISTS (SELECT 1 FROM file_tags WHERE file_tags.file_id = files.id AND file_tags.tag_id = %d)", tid)
+			// L7 修复：tag_id 改为 ? 参数绑定（原实现 %d 拼接字符串），并保证条件由 GORM 链式合并、可被后续查询沿用
+			var condParts []string
+			condArgs := make([]interface{}, 0, len(ids))
+			for _, tid := range ids {
+				condParts = append(condParts, "EXISTS (SELECT 1 FROM file_tags WHERE file_tags.file_id = files.id AND file_tags.tag_id = ?)")
+				condArgs = append(condArgs, tid)
 			}
-			query = query.Where(cond)
+			query = query.Where(strings.Join(condParts, " AND "), condArgs...)
 		}
 	}
 
@@ -112,18 +146,17 @@ func ListFiles(c *gin.Context) {
 	query.Model(&model.File{}).Count(&total)
 	var files []model.File
 	if by == "type" {
-		// 用原始 SQL 计算 ext_group，再排序
-		query.Raw(`SELECT * FROM files WHERE user_id = ? AND parent_id = ? AND is_deleted = 0
-			ORDER BY type ASC,
-				CASE
-					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('png','jpg','jpeg','gif','webp','svg','bmp','ico','avif') THEN 1
-					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('mp4','webm','ogg','mov','m4v','avi','mkv','flv') THEN 2
-					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('mp3','wav','flac','m4a','aac','opus') THEN 3
-					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('pdf','txt','md','doc','docx','xls','xlsx','ppt','pptx','csv','json','yaml','yml','log') THEN 4
-					ELSE 5
-				END ASC,
-				name `+dir+`
-			LIMIT ? OFFSET ?`, userID, parentID, pageSize, (page-1)*pageSize).Scan(&files)
+		// 按扩展名类型分组（文件夹已在最前），同组内按名称字母序
+		// L7 修复：不再使用 query.Raw（Raw 不会合并链式 Where 累积的条件，
+		// 导致按类型排序时上方标签筛选的 EXISTS 子查询被静默丢弃），
+		// 改用 GORM Order 配合常量 CASE 表达式（extGroupCaseSQL，无用户输入，无注入面）；
+		// 原实现：query.Raw(`SELECT * FROM files WHERE user_id = ? AND parent_id = ? AND is_deleted = 0
+		//	ORDER BY type ASC, CASE ... END ASC, name `+dir+` LIMIT ? OFFSET ?`, ...).Scan(&files)
+		query.Order("type ASC").
+			Order(gorm.Expr(extGroupCaseSQL + " ASC")).
+			Order("name " + dir).
+			Offset((page - 1) * pageSize).Limit(pageSize).
+			Find(&files)
 	} else {
 		query.Order(orderStr).
 			Offset((page - 1) * pageSize).Limit(pageSize).
@@ -555,14 +588,14 @@ func FileDetail(c *gin.Context) {
 		return
 	}
 	detail := gin.H{
-		"file":          f,
-		"ref_count":     0,
-		"blob_size":     f.Size,
-		"billed_self":   false,
-		"on_disk":       false,
-		"dedup":         false,
-		"storage_path":  blobPathOf(&f),
-		"migrated":      false,
+		"file":         f,
+		"ref_count":    0,
+		"blob_size":    f.Size,
+		"billed_self":  false,
+		"on_disk":      false,
+		"dedup":        false,
+		"storage_path": blobPathOf(&f),
+		"migrated":     false,
 	}
 	if f.Type == 1 && f.Hash != "" {
 		if b, err := blob.Get(f.Hash); err == nil {
@@ -645,27 +678,42 @@ func Move(c *gin.Context) {
 		return
 	}
 	userID := uid(c)
+	// L16 修复：校验与写入放入同一事务（原 checkTarget 向上遍历与 Save 非原子，
+	// 并发 A→B、B→A 可各自通过检查后写入，造成目录树成环）
 	var f model.File
-	if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
-		util.Fail(c, 404, "文件不存在")
-		return
-	}
-	if req.TargetParentID == f.ID {
-		util.Fail(c, 400, "不能移动到自身")
-		return
-	}
-	// 校验目标目录归属，并防止移动到自身子目录
-	if err := checkTarget(userID, req.TargetParentID, req.FileID); err != nil {
-		util.Fail(c, 400, err.Error())
-		return
-	}
-	if err := checkNameDup(userID, req.TargetParentID, f.Name); err != nil {
-		util.Fail(c, 409, err.Error())
-		return
-	}
-	f.ParentID = req.TargetParentID
-	if err := db.DB.Save(&f).Error; err != nil {
-		util.Fail(c, 500, "移动失败")
+	if err := db.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND user_id = ? AND is_deleted = 0", req.FileID, userID).First(&f).Error; err != nil {
+			return errFileNotFound
+		}
+		if req.TargetParentID == f.ID {
+			return errMoveToSelf
+		}
+		// 校验目标目录归属，并防止移动到自身子目录（事务内执行）
+		if err := checkTargetTx(tx, userID, req.TargetParentID, req.FileID); err != nil {
+			return err
+		}
+		if err := checkNameDupTx(tx, userID, req.TargetParentID, f.Name); err != nil {
+			return err
+		}
+		f.ParentID = req.TargetParentID
+		if err := tx.Save(&f).Error; err != nil {
+			return errMoveSave
+		}
+		return nil
+	}); err != nil {
+		switch {
+		case errors.Is(err, errFileNotFound):
+			util.Fail(c, 404, err.Error())
+		case errors.Is(err, errMoveToSelf):
+			util.Fail(c, 400, err.Error())
+		case errors.Is(err, errMoveSave):
+			util.Fail(c, 500, err.Error())
+		case errors.Is(err, errNameDup):
+			util.Fail(c, 409, err.Error())
+		default:
+			// checkTargetTx 的业务校验错误（目标不存在/非文件夹/自身子目录/层级异常）
+			util.Fail(c, 400, err.Error())
+		}
 		return
 	}
 	LogAction(userID, username(c), "move", fmt.Sprintf("移动 %s", f.Name))
@@ -906,24 +954,33 @@ func BatchMove(c *gin.Context) {
 	userID := uid(c)
 	var moved int64
 	for _, fid := range req.FileIDs {
-		var f model.File
-		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, userID).First(&f).Error; err != nil {
-			continue
+		// L16 修复：每项"校验 + 写入"放入独立事务，缩小 TOCTOU 窗口（原 checkTarget 检查与 Save 非原子）
+		ok := false
+		err := db.DB.Transaction(func(tx *gorm.DB) error {
+			var f model.File
+			if err := tx.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, userID).First(&f).Error; err != nil {
+				return nil // 文件不存在，跳过
+			}
+			if req.TargetParentID == f.ID {
+				return nil // 不能移动到自身，跳过
+			}
+			// 校验目标目录归属，并防止移动到自身子目录（事务内执行）
+			if err := checkTargetTx(tx, userID, req.TargetParentID, fid); err != nil {
+				return nil // 目标非法，跳过
+			}
+			if err := checkNameDupTx(tx, userID, req.TargetParentID, f.Name); err != nil {
+				return nil // 同目录重名，跳过
+			}
+			f.ParentID = req.TargetParentID
+			if err := tx.Save(&f).Error; err != nil {
+				return err
+			}
+			ok = true
+			return nil
+		})
+		if err == nil && ok {
+			moved++
 		}
-		if req.TargetParentID == f.ID {
-			continue
-		}
-		if err := checkTarget(userID, req.TargetParentID, fid); err != nil {
-			continue
-		}
-		if err := checkNameDup(userID, req.TargetParentID, f.Name); err != nil {
-			continue
-		}
-		f.ParentID = req.TargetParentID
-		if err := db.DB.Save(&f).Error; err != nil {
-			continue
-		}
-		moved++
 	}
 	util.OK(c, gin.H{"moved": moved})
 }
@@ -1184,7 +1241,8 @@ func checkNameDupTx(tx *gorm.DB, userID, parentID uint, name string) error {
 		Where("user_id = ? AND parent_id = ? AND name = ?", userID, parentID, name).
 		Count(&count)
 	if count > 0 {
-		return fmt.Errorf("同名文件或文件夹已存在")
+		// L16 修复：返回哨兵错误 errNameDup，供 Move 事务外映射 409 状态码（消息与原来一致）
+		return errNameDup
 	}
 	return nil
 }
@@ -1221,31 +1279,44 @@ func uniqueNameTx(tx *gorm.DB, userID, parentID uint, name string) string {
 	return name
 }
 
-// checkTarget 校验目标目录归属且不是自身子目录
-func checkTarget(userID, targetParentID, selfID uint) error {
+// checkTargetTx 校验目标目录归属且不是自身子目录（事务内使用，供 Move/BatchMove 缩小 TOCTOU 窗口，L16）。
+// L3 修复：目标目录必须可见（is_deleted=0），禁止移动到回收站内的文件夹，
+// 否则会产生 is_deleted=0 的子文件挂在 is_deleted=1 的父目录下的"幽灵文件"（无法释放配额）。
+// L16 修复：祖先向上遍历加深度上限（64 层），目录树成环时超限即视为非法目标，防止死循环。
+func checkTargetTx(tx *gorm.DB, userID, targetParentID, selfID uint) error {
 	if targetParentID == 0 {
 		return nil
 	}
 	var t model.File
-	if err := db.DB.Where("id = ? AND user_id = ?", targetParentID, userID).First(&t).Error; err != nil {
+	if err := tx.Where("id = ? AND user_id = ? AND is_deleted = 0", targetParentID, userID).First(&t).Error; err != nil {
 		return fmt.Errorf("目标文件夹不存在")
 	}
 	if t.Type != 0 {
 		return fmt.Errorf("目标必须是文件夹")
 	}
-	// 向上遍历检查是否把文件移动到自己的后代中
+	// 向上遍历检查是否把文件移动到自己的后代中（最多 64 层，L16 防成环死循环）
+	const maxDepth = 64
 	cur := targetParentID
-	for cur != 0 {
+	for depth := 0; cur != 0 && depth < maxDepth; depth++ {
 		if cur == selfID {
 			return fmt.Errorf("不能移动到自身子目录")
 		}
 		var p model.File
-		if err := db.DB.Where("id = ? AND user_id = ?", cur, userID).First(&p).Error; err != nil {
-			break
+		if err := tx.Where("id = ? AND user_id = ?", cur, userID).First(&p).Error; err != nil {
+			return nil // 祖先链断裂（孤儿节点），视为无环
 		}
 		cur = p.ParentID
 	}
+	if cur != 0 {
+		// L16 修复：达到深度上限仍未遍历到根，说明目录树成环或层级过深，视为非法目标
+		return fmt.Errorf("目标目录层级异常")
+	}
 	return nil
+}
+
+// checkTarget 校验目标目录归属且不是自身子目录（L3：目标必须可见 is_deleted=0；L16：深度上限防成环死循环）
+func checkTarget(userID, targetParentID, selfID uint) error {
+	return checkTargetTx(db.DB, userID, targetParentID, selfID)
 }
 
 // validateName 校验文件名/文件夹名：禁止路径分隔符、控制字符，限制长度（L2）
