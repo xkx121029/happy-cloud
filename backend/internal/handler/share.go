@@ -31,8 +31,8 @@ func Share(c *gin.Context) {
 		return
 	}
 	userID := uid(c)
-	if req.ExpireAt != nil && req.ExpireAt.Before(time.Now().Add(time.Hour*24*7)) {
-		util.Fail(c, 400, "有效期最短 7 天")
+	if req.ExpireAt != nil && req.ExpireAt.Before(time.Now().Add(time.Hour*24)) {
+		util.Fail(c, 400, "有效期最短 1 天")
 		return
 	}
 	var f model.File

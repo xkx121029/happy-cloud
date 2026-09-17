@@ -68,6 +68,16 @@ func main() {
 		files.GET("/shared/download", handler.DownloadShared)
 		files.GET("/detail", handler.FileDetail)
 		files.GET("/upload/status", handler.UploadStatus)
+		files.GET("/download/batch", handler.BatchDownload)
+		files.GET("/download/files", handler.ListDownloadableFiles)
+
+		tags := api.Group("/tags", middleware.Auth())
+		tags.GET("/list", handler.ListTags)
+		tags.POST("/create", handler.CreateTag)
+		tags.DELETE("/:id", handler.DeleteTag)
+		tags.POST("/file/:id", handler.GetFileTags)
+		tags.POST("/file/set", handler.SetFileTags)
+		tags.GET("/search", handler.SearchTags)
 
 		transfer := api.Group("/transfer", middleware.Auth())
 		transfer.GET("/users", handler.SearchUsers)

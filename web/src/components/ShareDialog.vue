@@ -17,6 +17,7 @@ const result = ref<{ token: string; url: string } | null>(null)
 const expireOptions = [
   { label: '永久有效', value: '0' },
   { label: '1 天', value: '1' },
+  { label: '3 天', value: '3' },
   { label: '7 天', value: '7' },
   { label: '30 天', value: '30' }
 ]

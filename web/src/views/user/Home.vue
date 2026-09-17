@@ -4,6 +4,7 @@ import type { Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   AddCircleOutline,
+  CheckmarkCircleOutline,
   CloudUploadOutline,
   CreateOutline,
   DownloadOutline,
@@ -26,7 +27,8 @@ import {
   TrashBinOutline,
   TrashOutline,
   ArrowUpOutline,
-  ArrowDownOutline
+  ArrowDownOutline,
+  PricetagOutline
 } from '@vicons/ionicons5'
 import {
   deleteFiles,
@@ -45,6 +47,15 @@ import {
 import { acceptTransfer, rejectTransfer } from '@/api/transfer'
 import { listNotifications, readNotification, unreadCount } from '@/api/notification'
 import { changeMyPassword } from '@/api/account'
+import {
+  createTag,
+  deleteTag,
+  getFileTags,
+  listTags,
+  searchTags,
+  setFileTags,
+  type TagItem
+} from '@/api/tags'
 import { toList, type FileItem, type NotificationItem } from '@/api/types'
 import FileIcon from '@/components/FileIcon.vue'
 import MoveDialog from '@/components/MoveDialog.vue'
@@ -53,6 +64,7 @@ import SendDialog from '@/components/SendDialog.vue'
 import SettingsDrawer from '@/components/SettingsDrawer.vue'
 import ShareDialog from '@/components/ShareDialog.vue'
 import StorageCard, { type StorageOverviewData } from '@/components/StorageCard.vue'
+import TagSelector from '@/components/TagSelector.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/notify'
@@ -98,6 +110,9 @@ const viewMode = ref<'grid' | 'list'>(settings.defaultView)
 const searchQuery = ref('')
 const sortKey = ref<'name' | 'date' | 'size' | 'type'>(settings.defaultSort)
 const sortAsc = ref(false) // false = desc（默认降序，日期/大小）；true = asc（名称、类型）
+const activeTagFilter = ref<number | null>(null) // 当前激活的标签筛选
+const allTags = ref<TagItem[]>([])
+const activeTag = computed(() => allTags.value.find((t) => t.id === activeTagFilter.value))
 
 const emptyMeta = computed(() => {
   if (activeNav.value === 'recent')
@@ -109,8 +124,15 @@ const emptyMeta = computed(() => {
 
 const filteredFiles = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return files.value
-  return files.value.filter((f) => f.name.toLowerCase().includes(q))
+  let list = files.value
+  if (q) list = list.filter((f) => f.name.toLowerCase().includes(q))
+  if (activeTagFilter.value !== null) {
+    list = list.filter((f) => {
+      const tags = (f as FileItem & { tags?: TagItem[] }).tags
+      return tags?.some((t) => t.id === activeTagFilter.value) ?? false
+    })
+  }
+  return list
 })
 
 /* ---------- 批量选择 ---------- */
@@ -176,7 +198,8 @@ async function loadList() {
     } else {
       const data = await listFiles(currentParentId.value, 1, 1000, {
         by: sortKey.value,
-        dir: sortAsc.value ? 'asc' : 'desc'
+        dir: sortAsc.value ? 'asc' : 'desc',
+        tag_ids: activeTagFilter.value ? String(activeTagFilter.value) : undefined
       })
       files.value = toList(data)
     }
@@ -210,10 +233,19 @@ function switchNav(k: NavKey) {
   pathStack.value = []
   searchQuery.value = ''
   selected.value.clear()
+  activeTagFilter.value = null
   // 切换到不同视图时恢复默认排序
   sortKey.value = settings.defaultSort
   sortAsc.value = settings.defaultSort === 'name'
   loadList()
+}
+
+async function loadAllTags() {
+  try {
+    allTags.value = await listTags()
+  } catch {
+    /* ignore */
+  }
 }
 
 function enterFolder(f: FileItem) {
@@ -483,14 +515,27 @@ function openBatchMove() {
 async function onBatchDownload() {
   const targets = filteredFiles.value.filter((f) => selected.value.has(f.id) && f.type === 1)
   if (!targets.length) return message.warning('所选项目中无文件可下载')
-  for (const f of targets) {
-    try {
-      await downloadFile(f.id, f.name)
-    } catch {
-      /* 拦截器已提示 */
-    }
+  // 单文件直接下载，多文件打包 zip
+  if (targets.length === 1) {
+    await downloadFile(targets[0].id, targets[0].name)
+    return
   }
-  message.success(`已开始下载 ${targets.length} 个文件`)
+  const idsParam = targets.map((f) => f.id).join(',')
+  try {
+    const res = await fetch(`/api/files/download/batch?ids=${idsParam}`, {
+      headers: { 'Authorization': `Bearer ${store.token}` }
+    })
+    if (!res.ok) throw new Error('下载失败')
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = res.headers.get('content-disposition')?.split("filename*=UTF-8''")[1]?.trim() || 'download.zip'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    message.success(`已开始打包下载 ${targets.length} 个文件`)
+  } catch {
+    /* 拦截器已提示 */
+  }
 }
 
 function onBatchDelete() {
@@ -572,6 +617,15 @@ async function onConfirmChangePwd() {
 function refresh() {
   loadList()
   loadQuota()
+}
+
+/* ---------- 标签管理 ---------- */
+const tagSelectorVisible = ref(false)
+const tagSelectorTarget = ref<{ id: number; name: string } | null>(null)
+
+function openTagSelector(f: FileItem) {
+  tagSelectorTarget.value = { id: f.id, name: f.name }
+  tagSelectorVisible.value = true
 }
 
 /* ---------- 共享到公共目录 ---------- */
@@ -682,6 +736,7 @@ onMounted(() => {
   // M6 修复：首次进入页面即加载存储概览，避免 StorageCard 显示为空
   loadStorage()
   loadNotifications()
+  loadAllTags()
   // 轮询未读通知数，用户在线时及时感知新消息
   notifyTimer = setInterval(async () => {
     try {
@@ -862,14 +917,42 @@ onBeforeUnmount(() => {
               size="small"
               @click="toggleSort('type')"
             >
-              <template #icon>
-                <n-icon><FolderOutline /></n-icon>
-              </template>
+              <template #icon><n-icon><FolderOutline /></n-icon></template>
             </n-button>
           </n-button-group>
           <n-button quaternary circle size="small" title="刷新" @click="refresh">
             <template #icon><n-icon><RefreshOutline /></n-icon></template>
           </n-button>
+        </div>
+      </div>
+
+      <!-- 标签筛选栏 -->
+      <div v-if="allTags.length > 0 && activeNav === 'drive'" class="tag-filter-bar">
+        <span class="tag-filter-label"><n-icon :size="13"><PricetagOutline /></n-icon> 标签筛选</span>
+        <div v-if="activeTagFilter !== null" class="tag-filter-active">
+          <n-tag
+            :bordered="false"
+            size="small"
+            closable
+            @close="activeTagFilter = null"
+            @click="activeTagFilter = null"
+          >
+            <span class="tag-filter-chip-dot" :style="{ background: activeTag?.color }" />
+            {{ activeTag?.name }}
+          </n-tag>
+        </div>
+        <div class="tag-filter-chips">
+          <div
+            v-for="tag in allTags"
+            :key="tag.id"
+            class="tag-filter-chip"
+            :class="{ active: activeTagFilter === tag.id }"
+            :style="activeTagFilter === tag.id ? { borderColor: tag.color, background: tag.color + '18', color: tag.color } : {}"
+            @click="activeTagFilter = activeTagFilter === tag.id ? null : tag.id"
+          >
+            <span class="tag-filter-chip-dot" :style="{ background: tag.color }" />
+            {{ tag.name }}
+          </div>
         </div>
       </div>
 
@@ -916,6 +999,9 @@ onBeforeUnmount(() => {
               </n-button>
               <n-button quaternary circle size="tiny" title="分享" @click="openShare(f)">
                 <template #icon><n-icon><ShareSocialOutline /></n-icon></template>
+              </n-button>
+              <n-button quaternary circle size="tiny" title="标签" @click="openTagSelector(f)">
+                <template #icon><n-icon><PricetagOutline /></n-icon></template>
               </n-button>
               <n-button quaternary circle size="tiny" title="删除" @click="onDelete(f)">
                 <template #icon><n-icon><TrashOutline /></n-icon></template>
@@ -966,6 +1052,7 @@ onBeforeUnmount(() => {
                     <n-button quaternary size="tiny" @click="openRename(f)">重命名</n-button>
                     <n-button quaternary size="tiny" @click="openMove(f)">移动</n-button>
                     <n-button quaternary size="tiny" @click="openShare(f)">分享</n-button>
+                    <n-button quaternary size="tiny" @click="openTagSelector(f)">标签</n-button>
                     <n-button quaternary size="tiny" type="error" @click="onDelete(f)">删除</n-button>
                   </n-space>
                 </td>
@@ -998,6 +1085,9 @@ onBeforeUnmount(() => {
       <div class="ctx-item" @click="openRename(ctxMenu.file!)">重命名</div>
       <div class="ctx-item" @click="openMove(ctxMenu.file!)">移动到</div>
       <div class="ctx-item" @click="openShare(ctxMenu.file!)">分享</div>
+      <div class="ctx-item" @click="openTagSelector(ctxMenu.file!)">
+        <n-icon :size="13"><PricetagOutline /></n-icon> 标签
+      </div>
       <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="onToggleShared(ctxMenu.file!)">
         {{ (ctxMenu.file!.is_shared ?? 0) === 1 ? '取消公共共享' : '共享到公共目录' }}
       </div>
@@ -1026,6 +1116,12 @@ onBeforeUnmount(() => {
       </template>
     </n-modal>
 
+    <TagSelector
+      :visible="tagSelectorVisible"
+      :file="tagSelectorTarget"
+      @update:visible="tagSelectorVisible = $event"
+      @updated="loadList"
+    />
     <ShareDialog :visible="shareVisible" :file="shareTarget" @update:visible="shareVisible = $event" />
     <MoveDialog :visible="moveVisible" :file="moveTarget" @update:visible="moveVisible = $event" @moved="loadList" />
     <MoveDialog :visible="batchMoveVisible" :file="null" :file-ids="selectedIds" @update:visible="batchMoveVisible = $event" @moved="loadList" />
@@ -1150,5 +1246,59 @@ onBeforeUnmount(() => {
   font-family: monospace;
   font-size: 12px;
   color: var(--text-2);
+}
+
+/* 标签筛选栏 */
+.tag-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  margin-bottom: 8px;
+}
+.tag-filter-label {
+  font-size: 13px;
+  color: var(--text-3);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tag-filter-active {
+  flex-shrink: 0;
+}
+.tag-filter-chip-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.tag-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color, #d1d5db);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: var(--bg-secondary, #f9fafb);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.tag-filter-chip:hover {
+  border-color: var(--primary-color, #06b6d4);
+  color: var(--primary-color, #06b6d4);
+}
+.tag-filter-chip.active {
+  font-weight: 500;
 }
 </style>

@@ -65,6 +65,8 @@ func ListFiles(c *gin.Context) {
 	// 排序参数：by=name|date|size|type；asc/desc（name/type 默认升序，date/size 默认降序）
 	by := c.DefaultQuery("by", "name")
 	dir := c.DefaultQuery("dir", "desc")
+	// 标签筛选：逗号分隔的 tag_id 列表，文件需包含所有指定标签
+	tagIDsParam := c.Query("tag_ids")
 	// 文件夹始终置顶（type=0 在前），再按排序字段排列
 	var orderStr string
 	switch by {
@@ -83,6 +85,29 @@ func ListFiles(c *gin.Context) {
 		orderStr = "type ASC, name ASC"
 	}
 	query := db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, parentID)
+
+	// 标签筛选：文件需包含所有指定 tag_id（AND 逻辑）
+	if tagIDsParam != "" {
+		var ids []uint
+		for _, p := range strings.Split(tagIDsParam, ",") {
+			v, _ := strconv.ParseUint(strings.TrimSpace(p), 10, 32)
+			if v > 0 {
+				ids = append(ids, uint(v))
+			}
+		}
+		if len(ids) > 0 {
+			// 使用子查询：file_tags 必须包含所有指定标签
+			cond := "1=1"
+			for i, tid := range ids {
+				if i > 0 {
+					cond += " AND "
+				}
+				cond += fmt.Sprintf("EXISTS (SELECT 1 FROM file_tags WHERE file_tags.file_id = files.id AND file_tags.tag_id = %d)", tid)
+			}
+			query = query.Where(cond)
+		}
+	}
+
 	var total int64
 	query.Model(&model.File{}).Count(&total)
 	var files []model.File
@@ -104,7 +129,21 @@ func ListFiles(c *gin.Context) {
 			Offset((page - 1) * pageSize).Limit(pageSize).
 			Find(&files)
 	}
-	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": files})
+	// 为每个文件附带标签
+	type fileWithTags struct {
+		model.File
+		Tags []model.Tag `json:"tags"`
+	}
+	items := make([]fileWithTags, 0, len(files))
+	for _, f := range files {
+		var tags []model.Tag
+		db.DB.Table("file_tags").
+			Joins("JOIN tags ON tags.id = file_tags.tag_id").
+			Where("file_tags.file_id = ?", f.ID).
+			Find(&tags)
+		items = append(items, fileWithTags{File: f, Tags: tags})
+	}
+	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": items})
 }
 
 // Mkdir 新建文件夹

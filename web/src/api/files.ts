@@ -6,10 +6,11 @@ export interface HashCheckResult {
   file_id?: number
 }
 
-export function listFiles(parentId: number, page = 1, pageSize = 1000, opts?: { by?: 'name' | 'date' | 'size' | 'type'; dir?: 'asc' | 'desc' }) {
+export function listFiles(parentId: number, page = 1, pageSize = 1000, opts?: { by?: 'name' | 'date' | 'size' | 'type'; dir?: 'asc' | 'desc'; tag_ids?: string }) {
   const params: Record<string, unknown> = { parent_id: parentId, page, page_size: pageSize }
   if (opts?.by) params.by = opts.by
   if (opts?.dir) params.dir = opts.dir
+  if (opts?.tag_ids) params.tag_ids = opts.tag_ids
   return httpGet<FileItem[] | PageData<FileItem>>('/files/list', params)
 }
 
