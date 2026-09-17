@@ -34,6 +34,22 @@ func username(c *gin.Context) string {
 	return v.(string)
 }
 
+// extGroup 文件类型分组，数值越小越靠前；0 表示归入"其他"
+func extGroup(ext string) int {
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif":
+		return 1
+	case ".mp4", ".webm", ".ogg", ".mov", ".m4v", ".avi", ".mkv", ".flv":
+		return 2
+	case ".mp3", ".wav", ".flac", ".m4a", ".aac", ".opus":
+		return 3
+	case ".pdf", ".txt", ".md", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv", ".json", ".yaml", ".yml", ".log":
+		return 4
+	default:
+		return 5
+	}
+}
+
 // ListFiles 文件列表，参数 parent_id
 func ListFiles(c *gin.Context) {
 	parentID, _ := strconv.Atoi(c.DefaultQuery("parent_id", "0"))
@@ -46,13 +62,48 @@ func ListFiles(c *gin.Context) {
 		pageSize = 100
 	}
 	userID := uid(c)
+	// 排序参数：by=name|date|size|type；asc/desc（name/type 默认升序，date/size 默认降序）
+	by := c.DefaultQuery("by", "name")
+	dir := c.DefaultQuery("dir", "desc")
+	// 文件夹始终置顶（type=0 在前），再按排序字段排列
+	var orderStr string
+	switch by {
+	case "date":
+		orderStr = fmt.Sprintf("type ASC, %s %s", "created_at", dir)
+	case "size":
+		orderStr = fmt.Sprintf("type ASC, %s %s", "size", dir)
+	case "type":
+		// 按扩展名类型分组（文件夹已在最前），同组内按名称字母序
+		if dir == "desc" {
+			orderStr = "type ASC, ext_group ASC, name DESC"
+		} else {
+			orderStr = "type ASC, ext_group ASC, name ASC"
+		}
+	default:
+		orderStr = "type ASC, name ASC"
+	}
 	query := db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", userID, parentID)
 	var total int64
 	query.Model(&model.File{}).Count(&total)
 	var files []model.File
-	query.Order("type ASC, created_at DESC").
-		Offset((page - 1) * pageSize).Limit(pageSize).
-		Find(&files)
+	if by == "type" {
+		// 用原始 SQL 计算 ext_group，再排序
+		query.Raw(`SELECT * FROM files WHERE user_id = ? AND parent_id = ? AND is_deleted = 0
+			ORDER BY type ASC,
+				CASE
+					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('png','jpg','jpeg','gif','webp','svg','bmp','ico','avif') THEN 1
+					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('mp4','webm','ogg','mov','m4v','avi','mkv','flv') THEN 2
+					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('mp3','wav','flac','m4a','aac','opus') THEN 3
+					WHEN LOWER(substr(name, instr(name, '.') + 1)) IN ('pdf','txt','md','doc','docx','xls','xlsx','ppt','pptx','csv','json','yaml','yml','log') THEN 4
+					ELSE 5
+				END ASC,
+				name `+dir+`
+			LIMIT ? OFFSET ?`, userID, parentID, pageSize, (page-1)*pageSize).Scan(&files)
+	} else {
+		query.Order(orderStr).
+			Offset((page - 1) * pageSize).Limit(pageSize).
+			Find(&files)
+	}
 	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": files})
 }
 

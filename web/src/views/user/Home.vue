@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import type { Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   AddCircleOutline,
@@ -23,7 +24,9 @@ import {
   StarOutline,
   TimeOutline,
   TrashBinOutline,
-  TrashOutline
+  TrashOutline,
+  ArrowUpOutline,
+  ArrowDownOutline
 } from '@vicons/ionicons5'
 import {
   deleteFiles,
@@ -93,6 +96,8 @@ const storageData = ref<StorageOverviewData | null>(null)
 
 const viewMode = ref<'grid' | 'list'>(settings.defaultView)
 const searchQuery = ref('')
+const sortKey = ref<'name' | 'date' | 'size' | 'type'>(settings.defaultSort)
+const sortAsc = ref(false) // false = desc（默认降序，日期/大小）；true = asc（名称、类型）
 
 const emptyMeta = computed(() => {
   if (activeNav.value === 'recent')
@@ -169,7 +174,10 @@ async function loadList() {
     } else if (activeNav.value === 'favorite') {
       files.value = toList(await listFavorites())
     } else {
-      const data = await listFiles(currentParentId.value)
+      const data = await listFiles(currentParentId.value, 1, 1000, {
+        by: sortKey.value,
+        dir: sortAsc.value ? 'asc' : 'desc'
+      })
       files.value = toList(data)
     }
   } catch {
@@ -202,6 +210,9 @@ function switchNav(k: NavKey) {
   pathStack.value = []
   searchQuery.value = ''
   selected.value.clear()
+  // 切换到不同视图时恢复默认排序
+  sortKey.value = settings.defaultSort
+  sortAsc.value = settings.defaultSort === 'name'
   loadList()
 }
 
@@ -370,6 +381,17 @@ function openPreview(f: FileItem) {
   if (f.type !== 1) return
   previewFile.value = f
   previewVisible.value = true
+}
+
+/* ---------- 排序切换 ---------- */
+function toggleSort(key: 'name' | 'date' | 'size' | 'type') {
+  if (sortKey.value === key) {
+    sortAsc.value = !sortAsc.value
+  } else {
+    sortKey.value = key
+    sortAsc.value = key === 'name' || key === 'type' // 名称和类型默认升序
+  }
+  loadList()
 }
 
 async function onDownload(f: FileItem) {
@@ -804,6 +826,45 @@ onBeforeUnmount(() => {
             </n-button>
             <n-button :type="viewMode === 'list' ? 'primary' : 'default'" size="small" @click="viewMode = 'list'">
               <template #icon><n-icon><ListOutline /></n-icon></template>
+            </n-button>
+          </n-button-group>
+          <!-- 排序按钮 -->
+          <n-button-group>
+            <n-button
+              :type="sortKey === 'name' ? 'primary' : 'default'"
+              size="small"
+              @click="toggleSort('name')"
+            >
+              <template #icon>
+                <n-icon><ArrowUpOutline v-if="sortAsc && sortKey === 'name'" /><ArrowDownOutline v-else /></n-icon>
+              </template>
+            </n-button>
+            <n-button
+              :type="sortKey === 'date' ? 'primary' : 'default'"
+              size="small"
+              @click="toggleSort('date')"
+            >
+              <template #icon>
+                <n-icon><component :is="sortAsc && sortKey === 'date' ? 'ArrowUpOutline' : 'ArrowDownOutline'" /></n-icon>
+              </template>
+            </n-button>
+            <n-button
+              :type="sortKey === 'size' ? 'primary' : 'default'"
+              size="small"
+              @click="toggleSort('size')"
+            >
+              <template #icon>
+                <n-icon><component :is="sortAsc && sortKey === 'size' ? 'ArrowUpOutline' : 'ArrowDownOutline'" /></n-icon>
+              </template>
+            </n-button>
+            <n-button
+              :type="sortKey === 'type' ? 'primary' : 'default'"
+              size="small"
+              @click="toggleSort('type')"
+            >
+              <template #icon>
+                <n-icon><FolderOutline /></n-icon>
+              </template>
             </n-button>
           </n-button-group>
           <n-button quaternary circle size="small" title="刷新" @click="refresh">

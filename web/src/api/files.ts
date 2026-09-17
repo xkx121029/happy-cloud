@@ -6,12 +6,11 @@ export interface HashCheckResult {
   file_id?: number
 }
 
-export function listFiles(parentId: number, page = 1, pageSize = 1000) {
-  return httpGet<FileItem[] | PageData<FileItem>>('/files/list', {
-    parent_id: parentId,
-    page,
-    page_size: pageSize
-  })
+export function listFiles(parentId: number, page = 1, pageSize = 1000, opts?: { by?: 'name' | 'date' | 'size' | 'type'; dir?: 'asc' | 'desc' }) {
+  const params: Record<string, unknown> = { parent_id: parentId, page, page_size: pageSize }
+  if (opts?.by) params.by = opts.by
+  if (opts?.dir) params.dir = opts.dir
+  return httpGet<FileItem[] | PageData<FileItem>>('/files/list', params)
 }
 
 /** 回收站列表 */
