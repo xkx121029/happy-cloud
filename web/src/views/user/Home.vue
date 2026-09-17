@@ -1081,19 +1081,36 @@ onBeforeUnmount(() => {
     <input ref="fileInput" type="file" multiple hidden @change="onPickFiles" />
 
     <div v-if="ctxMenu.show && ctxMenu.file" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
-      <div class="ctx-item" @click="onDownload(ctxMenu.file!)">下载</div>
-      <div class="ctx-item" @click="openRename(ctxMenu.file!)">重命名</div>
-      <div class="ctx-item" @click="openMove(ctxMenu.file!)">移动到</div>
-      <div class="ctx-item" @click="openShare(ctxMenu.file!)">分享</div>
-      <div class="ctx-item" @click="openTagSelector(ctxMenu.file!)">
-        <n-icon :size="13"><PricetagOutline /></n-icon> 标签
+      <div v-if="ctxMenu.file!.type !== 0" class="ctx-item" @click="openPreview(ctxMenu.file!)">
+        <n-icon :size="15"><EyeOutline /></n-icon><span>预览</span>
       </div>
+      <div v-if="ctxMenu.file!.type !== 0" class="ctx-item" @click="onDownload(ctxMenu.file!)">
+        <n-icon :size="15"><DownloadOutline /></n-icon><span>下载</span>
+      </div>
+      <div class="ctx-item" @click="openDetail(ctxMenu.file!)">
+        <n-icon :size="15"><PieChartOutline /></n-icon><span>详情</span>
+      </div>
+      <div class="ctx-item" @click="openRename(ctxMenu.file!)">
+        <n-icon :size="15"><CreateOutline /></n-icon><span>重命名</span>
+      </div>
+      <div class="ctx-item" @click="openMove(ctxMenu.file!)">
+        <n-icon :size="15"><FolderOpenOutline /></n-icon><span>移动</span>
+      </div>
+      <div class="ctx-item" @click="openShare(ctxMenu.file!)">
+        <n-icon :size="15"><ShareSocialOutline /></n-icon><span>分享</span>
+      </div>
+      <div class="ctx-item" @click="openTagSelector(ctxMenu.file!)">
+        <n-icon :size="15"><PricetagOutline /></n-icon><span>标签</span>
+      </div>
+      <div class="ctx-divider" />
       <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="onToggleShared(ctxMenu.file!)">
         {{ (ctxMenu.file!.is_shared ?? 0) === 1 ? '取消公共共享' : '共享到公共目录' }}
       </div>
       <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="openSend(ctxMenu.file!)">发送给用户</div>
       <div class="ctx-divider" />
-      <div class="ctx-item danger" @click="onDelete(ctxMenu.file!)">删除</div>
+      <div class="ctx-item danger" @click="onDelete(ctxMenu.file!)">
+        <n-icon :size="15"><TrashOutline /></n-icon><span>删除</span>
+      </div>
     </div>
 
     <n-modal v-model:show="mkdirVisible" preset="card" title="新建文件夹" style="width: 400px" :bordered="false">

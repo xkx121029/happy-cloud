@@ -158,6 +158,11 @@ a { color: var(--hc-primary); text-decoration: none; }
 }
 .file-card:hover .file-card-actions { opacity: 1; pointer-events: auto; }
 
+/* 桌面端：卡片下方的 8 个快捷按钮收进右键菜单，统一走「更多操作」入口 */
+@media (hover: hover) and (pointer: fine) {
+  .file-card-actions { display: none; }
+}
+
 /* 手机/触屏端：无 hover，操作栏常驻在卡片下方 */
 @media (hover: none), (pointer: coarse) {
   .file-card { padding: 16px 10px 10px; }
@@ -201,9 +206,13 @@ a { color: var(--hc-primary); text-decoration: none; }
 .ctx-menu {
   position: fixed; z-index: 300; background: var(--hc-bg-panel);
   border: 1px solid var(--hc-border); border-radius: var(--hc-radius-sm);
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1); padding: 4px; min-width: 130px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.1); padding: 4px; min-width: 160px;
 }
-.ctx-item { padding: 7px 14px; font-size: 13px; border-radius: 5px; cursor: pointer; }
+.ctx-item {
+  padding: 7px 10px; font-size: 13px; border-radius: 5px; cursor: pointer;
+  display: flex; align-items: center; gap: 9px; color: var(--hc-text, inherit);
+}
+.ctx-item .n-icon { flex: none; opacity: 0.75; }
 .ctx-item:hover { background: var(--hc-bg-soft); }
 .ctx-item.danger { color: #dc2626; }
 .ctx-item.danger:hover { background: #fef2f2; }
