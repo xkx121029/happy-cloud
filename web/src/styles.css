@@ -710,11 +710,47 @@ html.hc-dark .batch-bar { background: rgba(14, 106, 92, 0.2); border-color: #2F4
 html.hc-dark .row-selected { background: rgba(14, 106, 92, 0.2); }
 html.hc-dark .preview-pdf-frame { background: #fff; }
 
-/* ---------- 响应式：窄屏下侧边导航转为顶部横向 ---------- */
+/* ---------- 响应式：平板/窄屏 ---------- */
 @media (max-width: 768px) {
   .home-body { flex-direction: column; }
   .sidebar { width: 100%; position: static; flex-direction: row; }
   .sidebar-nav { flex: 1; flex-direction: row; gap: 4px; overflow-x: auto; }
   .sidebar-item { flex: 1; justify-content: center; white-space: nowrap; }
   .sidebar-storage { display: none; }
+
+  .home-header-inner { padding: 10px 12px; gap: 8px; }
+  .home-main { padding: 14px 12px 32px; }
+  .header-right { gap: 6px; flex-wrap: nowrap; }
+
+  /* 配额块收缩为弹性窄条 */
+  .quota-block { width: auto; flex: 1; min-width: 90px; padding: 6px 10px; }
+
+  /* 工具栏改为上下两行：面包屑 / 搜索+操作 */
+  .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+  .toolbar .n-breadcrumb { overflow-x: auto; white-space: nowrap; }
+  .toolbar-right { flex-wrap: wrap; gap: 6px; }
+  .toolbar-right .n-input { width: 100% !important; }
+
+  /* 标签筛选条横向滚动 */
+  .tag-filter-chips { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* 文件网格紧凑化 */
+  .file-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+}
+
+/* ---------- 响应式：手机 ---------- */
+@media (max-width: 640px) {
+  /* header 操作按钮只保留图标，文字收进移动端视觉 */
+  .header-right .btn-txt { display: none; }
+  .user-name { display: none; }
+  .quota-text { display: none; }
+  .quota-block { min-width: 56px; }
+
+  /* 抽屉类弹层全宽 */
+  .n-drawer { max-width: 100vw !important; width: 100vw !important; }
+
+  /* 文件卡片字号/间距微调，列表视图紧凑 */
+  .file-card { padding: 12px 8px 30px; }
+  .batch-bar { padding: 8px 10px; }
+  .batch-count { font-size: 12px; }
 }

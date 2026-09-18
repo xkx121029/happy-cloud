@@ -770,15 +770,15 @@ onBeforeUnmount(() => {
           </div>
           <n-button quaternary @click="router.push('/shared')">
             <template #icon><n-icon><GlobeOutline /></n-icon></template>
-            共享目录
+            <span class="btn-txt">共享目录</span>
           </n-button>
           <n-button @click="fileInput?.click()">
             <template #icon><n-icon><CloudUploadOutline /></n-icon></template>
-            上传文件
+            <span class="btn-txt">上传文件</span>
           </n-button>
           <n-button @click="mkdirVisible = true">
             <template #icon><n-icon><FolderOpenOutline /></n-icon></template>
-            新建文件夹
+            <span class="btn-txt">新建文件夹</span>
           </n-button>
           <n-dropdown :options="userOptions" @select="onUserSelect">
             <div class="user-chip" title="个人设置">
