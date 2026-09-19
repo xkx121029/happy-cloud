@@ -15,11 +15,15 @@ const info = ref<ShareInfo | null>(null)
 const password = ref('')
 const loading = ref(false)
 const verifying = ref(false)
+// 密码校验通过标记：用于展示文件列表（不依赖 password_required，后者在带密码请求下仍为 true）
+const verified = ref(false)
+let verifiedPwd = ''
 
 async function load() {
   loading.value = true
   try {
-    info.value = await getShare(token)
+    // 密码分享：验证后需携带密码才能取到文件列表
+    info.value = await getShare(token, verifiedPwd)
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -35,6 +39,8 @@ async function onVerify() {
   verifying.value = true
   try {
     await verifyShare(token, password.value.trim())
+    verified.value = true
+    verifiedPwd = password.value.trim()
     await load()
   } catch {
     /* ignore */
@@ -51,7 +57,7 @@ function fileList(): FileItem[] {
 async function onDownload(f: FileItem) {
   if (f.type !== 1) return
   try {
-    await downloadShared(token, f.id, f.name)
+    await downloadShared(token, f.id, f.name, verifiedPwd)
   } catch {
     /* 拦截器已提示 */
   }
@@ -74,12 +80,12 @@ onMounted(load)
       <n-spin :show="loading">
         <p v-if="!info && !loading" style="color: #6b7280">分享不存在或已失效。</p>
 
-        <div v-if="info && info.password_required" class="share-pwd">
+        <div v-if="info && info.password_required && !verified" class="share-pwd">
           <n-input v-model:value="password" type="password" show-password-on="click" placeholder="请输入访问密码" @keyup.enter="onVerify" />
           <n-button type="primary" :loading="verifying" @click="onVerify">验证</n-button>
         </div>
 
-        <div v-if="info && !info.password_required">
+        <div v-if="info && (!info.password_required || verified)">
           <div v-for="f in fileList()" :key="f.id" class="share-item">
             <FileIcon :file="f" :size="26" />
             <div style="flex: 1; min-width: 0">

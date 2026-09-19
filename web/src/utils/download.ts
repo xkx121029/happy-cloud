@@ -138,9 +138,16 @@ async function handleFSA(blob: Blob, filename: string) {
   }
 }
 
-export async function downloadShared(token: string, fileId: number, filename: string) {
-  const blob = await fetchBlob(`/share/${token}/download`, { file_id: fileId })
-  saveBlob(blob, filename)
+export async function downloadShared(token: string, fileId: number, filename: string, password?: string) {
+  // 密码分享下载需携带访问密码，否则后端返回 401（B7 修复）
+  const headers: Record<string, string> = {}
+  if (password) headers['X-Share-Password'] = password
+  const res = await request.get<Blob, AxiosResponse<Blob>>(`/share/${token}/download`, {
+    params: { file_id: fileId },
+    headers,
+    responseType: 'blob'
+  })
+  saveBlob(res.data, filename)
 }
 
 export async function downloadSharedFile(fileId: number, filename: string) {

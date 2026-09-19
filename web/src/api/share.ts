@@ -1,5 +1,5 @@
 import type { AxiosResponse } from 'axios'
-import request, { httpDelete, httpGet, httpPost, httpPut } from './request'
+import request, { httpDelete, httpGet, httpPost, httpPut, type ApiResponse } from './request'
 import type { MyShareItem, PageData, ShareInfo } from './types'
 
 export interface CreateShareData {
@@ -12,8 +12,12 @@ export function createShare(data: CreateShareData) {
   return httpPost<ShareInfo>('/share/create', data)
 }
 
-export function getShare(token: string) {
-  return httpGet<ShareInfo>(`/share/${token}`)
+/** 获取分享信息；密码分享需携带访问密码（header 传递，与后端 GetShare 一致） */
+export async function getShare(token: string, password?: string) {
+  const headers: Record<string, string> = {}
+  if (password) headers['X-Share-Password'] = password
+  const res = await request.get<unknown, ApiResponse<ShareInfo>>(`/share/${token}`, { headers })
+  return res.data
 }
 
 export function verifyShare(token: string, password: string) {
