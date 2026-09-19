@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AddCircleOutline,
   CheckmarkCircleOutline,
@@ -35,6 +35,7 @@ import {
   favoriteFile,
   fetchQuota,
   fetchStorageOverview,
+  fileAncestors,
   fileDetail,
   listFiles,
   listFavorites,
@@ -74,6 +75,7 @@ import { uploadFile, type UploadTaskItem } from '@/utils/uploader'
 
 const store = useUserStore()
 const router = useRouter()
+const route = useRoute()
 const settings = useSettingsStore()
 
 /* ---------- 设置抽屉 ---------- */
@@ -229,6 +231,10 @@ async function loadStorage() {
 
 function switchNav(k: NavKey) {
   if (k === activeNav.value) return
+  // 非"我的网盘"视图有独立路由；drive 进入 /browse 保留 URL 化目录
+  if (k !== 'drive' && route.path !== '/') {
+    router.push('/')
+  }
   activeNav.value = k
   pathStack.value = []
   searchQuery.value = ''
@@ -250,14 +256,51 @@ async function loadAllTags() {
 
 function enterFolder(f: FileItem) {
   if (f.type !== 0 || activeNav.value !== 'drive') return
-  pathStack.value.push({ id: f.id, name: f.name })
-  loadList()
+  // URL 化：进入文件夹时更新地址栏，支持前进后退/直达/刷新
+  router.push('/browse/' + f.id)
 }
 
 function goTo(index: number) {
-  pathStack.value = pathStack.value.slice(0, index)
+  const target = pathStack.value[index]
+  if (index === 0 || !target) {
+    // 回到根目录
+    router.push('/browse')
+  } else {
+    router.push('/browse/' + target.id)
+  }
+}
+
+/* ---------- URL 同步：从地址栏 folderId 重建目录 ---------- */
+async function syncFromRoute() {
+  // 仅"我的网盘"视图支持 URL 化目录；最近/收藏由 switchNav 独立路由
+  if (activeNav.value !== 'drive') return
+  const folderId = Number(route.params.folderId ?? 0)
+  if (!folderId) {
+    // 根目录
+    pathStack.value = []
+    loadList()
+    return
+  }
+  try {
+    const ancestors = await fileAncestors(folderId)
+    // 目录不存在/不属于当前用户 → 后端返回空 → 回到根目录
+    if (!ancestors.length) {
+      router.replace('/browse')
+      return
+    }
+    pathStack.value = ancestors.map((a) => ({ id: a.id, name: a.name }))
+  } catch {
+    /* 拦截器已提示 */
+  }
   loadList()
 }
+
+watch(
+  () => route.params.folderId,
+  () => {
+    if (route.name === 'browse') syncFromRoute()
+  }
+)
 
 /* ---------- 新建文件夹 ---------- */
 const mkdirVisible = ref(false)
@@ -731,7 +774,8 @@ async function onReject(n: NotificationItem) {
 onMounted(() => {
   window.addEventListener('click', hideCtx)
   window.addEventListener('contextmenu', hideCtx)
-  loadList()
+  // 从 URL 同步目录（含刷新直达子目录）；根目录时等价于原 loadList
+  syncFromRoute()
   loadQuota()
   // M6 修复：首次进入页面即加载存储概览，避免 StorageCard 显示为空
   loadStorage()

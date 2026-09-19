@@ -1526,3 +1526,27 @@ func purgeTree(userID uint, uname string, f *model.File) error {
 		return purgeTreeWithTx(tx, userID, uname, f)
 	})
 }
+
+// FileAncestors 目录祖先链：从 folder_id 向上回溯到根，返回从根到当前文件夹的路径数组。
+// folder_id=0（根目录）返回空数组。用于 URL 直达/刷新时重建面包屑。
+func FileAncestors(c *gin.Context) {
+	userID := uid(c)
+	folderID, _ := strconv.ParseUint(c.DefaultQuery("folder_id", "0"), 10, 32)
+	var path []model.File
+	cur := uint(folderID)
+	for cur != 0 {
+		var f model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", cur, userID).First(&f).Error; err != nil {
+			// 目录不存在或不属于该用户 → 视为根目录，避免泄露他人路径
+			path = nil
+			break
+		}
+		path = append([]model.File{f}, path...) // 根在前
+		cur = f.ParentID
+	}
+	items := make([]gin.H, 0, len(path))
+	for _, f := range path {
+		items = append(items, gin.H{"id": f.ID, "name": f.Name, "parent_id": f.ParentID})
+	}
+	util.OK(c, items)
+}

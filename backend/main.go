@@ -57,6 +57,7 @@ func main() {
 		files.POST("/trash/clear", handler.ClearTrash)
 		files.GET("/search", handler.SearchFiles)
 		files.GET("/recent", handler.RecentFiles)
+		files.GET("/ancestors", handler.FileAncestors)
 		files.GET("/preview", handler.Preview)
 		files.POST("/favorite", handler.FavoriteFile)
 		files.POST("/unfavorite", handler.UnfavoriteFile)

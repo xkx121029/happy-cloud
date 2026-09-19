@@ -14,6 +14,7 @@ const router = createRouter({
     { path: '/register', name: 'register', component: () => import('@/views/user/Register.vue'), meta: { public: true, title: '注册' } },
     { path: '/share/:token', name: 'share', component: () => import('@/views/SharePreview.vue'), meta: { public: true, title: '文件分享' } },
     { path: '/', name: 'home', component: () => import('@/views/user/Home.vue'), meta: { title: '全部文件' } },
+    { path: '/browse/:folderId?', name: 'browse', component: () => import('@/views/user/Home.vue'), meta: { title: '文件浏览' } },
     { path: '/shared', name: 'shared', component: () => import('@/views/Shared.vue'), meta: { title: '共享目录' } },
     { path: '/notifications', name: 'notifications', component: () => import('@/views/Notifications.vue'), meta: { title: '通知' } },
     { path: '/trash', name: 'trash', component: () => import('@/views/user/Trash.vue'), meta: { title: '回收站' } },

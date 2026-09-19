@@ -44,6 +44,13 @@ export function recentFiles(limit = 50) {
   return httpGet<FileItem[]>('/files/recent', { limit })
 }
 
+/** 目录祖先链：返回从根到指定文件夹的路径数组（folder_id=0 时为空数组） */
+export function fileAncestors(folderId: number) {
+  return httpGet<{ id: number; name: string; parent_id: number }[]>('/files/ancestors', {
+    folder_id: folderId
+  })
+}
+
 /** 我的收藏 */
 export function listFavorites() {
   return httpGet<FileItem[]>('/files/favorites')
