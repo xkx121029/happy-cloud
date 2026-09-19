@@ -927,7 +927,7 @@ onBeforeUnmount(() => {
               <template #icon><n-icon><ListOutline /></n-icon></template>
             </n-button>
           </n-button-group>
-          <!-- 排序按钮 -->
+          <!-- 排序：名称 / 日期 / 大小，箭头表示方向 -->
           <n-button-group>
             <n-button
               :type="sortKey === 'name' ? 'primary' : 'default'"
@@ -937,6 +937,7 @@ onBeforeUnmount(() => {
               <template #icon>
                 <n-icon><ArrowUpOutline v-if="sortAsc && sortKey === 'name'" /><ArrowDownOutline v-else /></n-icon>
               </template>
+              名称
             </n-button>
             <n-button
               :type="sortKey === 'date' ? 'primary' : 'default'"
@@ -946,6 +947,7 @@ onBeforeUnmount(() => {
               <template #icon>
                 <n-icon><component :is="sortAsc && sortKey === 'date' ? 'ArrowUpOutline' : 'ArrowDownOutline'" /></n-icon>
               </template>
+              日期
             </n-button>
             <n-button
               :type="sortKey === 'size' ? 'primary' : 'default'"
@@ -955,13 +957,7 @@ onBeforeUnmount(() => {
               <template #icon>
                 <n-icon><component :is="sortAsc && sortKey === 'size' ? 'ArrowUpOutline' : 'ArrowDownOutline'" /></n-icon>
               </template>
-            </n-button>
-            <n-button
-              :type="sortKey === 'type' ? 'primary' : 'default'"
-              size="small"
-              @click="toggleSort('type')"
-            >
-              <template #icon><n-icon><FolderOutline /></n-icon></template>
+              大小
             </n-button>
           </n-button-group>
           <n-button quaternary circle size="small" title="刷新" @click="refresh">
@@ -1296,31 +1292,31 @@ onBeforeUnmount(() => {
 }
 .detail-label {
   font-size: 12px;
-  color: var(--text-3);
+  color: var(--hc-text-muted);
 }
 .detail-value {
   font-size: 14px;
-  color: var(--text-1);
+  color: var(--hc-text);
   word-break: break-all;
 }
 .detail-path {
-  font-family: monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
   font-size: 12px;
-  color: var(--text-2);
+  color: var(--hc-text-secondary);
 }
 
 /* 标签筛选栏 */
 .tag-filter-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
-  margin-bottom: 8px;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--hc-border);
+  margin-bottom: 12px;
 }
 .tag-filter-label {
   font-size: 13px;
-  color: var(--text-3);
+  color: var(--hc-text-muted);
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -1345,19 +1341,19 @@ onBeforeUnmount(() => {
 .tag-filter-chip {
   display: inline-flex;
   align-items: center;
-  padding: 2px 10px;
+  padding: 3px 11px;
   border-radius: 999px;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--hc-border);
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.15s ease;
-  background: var(--bg-secondary, #f9fafb);
-  color: var(--text-2);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  background: var(--hc-bg-panel);
+  color: var(--hc-text-secondary);
   white-space: nowrap;
 }
 .tag-filter-chip:hover {
-  border-color: var(--primary-color, #06b6d4);
-  color: var(--primary-color, #06b6d4);
+  border-color: var(--hc-primary);
+  color: var(--hc-primary);
 }
 .tag-filter-chip.active {
   font-weight: 500;
