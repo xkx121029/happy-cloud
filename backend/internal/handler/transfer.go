@@ -71,13 +71,12 @@ func SendTransfer(c *gin.Context) {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
-	if f.Type != 1 {
-		util.Fail(c, 400, "仅文件可以发送")
-		return
-	}
-	if _, err := os.Stat(blobPathOf(&f)); err != nil {
-		util.Fail(c, 404, "文件实体缺失")
-		return
+	// 文件需校验实体存在；文件夹（type=0）无需实体，直接整棵子树转送
+	if f.Type == 1 {
+		if _, err := os.Stat(blobPathOf(&f)); err != nil {
+			util.Fail(c, 404, "文件实体缺失")
+			return
+		}
 	}
 	transfer := model.Transfer{
 		SenderID:   userID,
@@ -86,21 +85,26 @@ func SendTransfer(c *gin.Context) {
 		FileID:     f.ID,
 		FileName:   f.Name,
 		FileSize:   f.Size,
+		Type:       f.Type,
 		Status:     0,
 	}
 	if err := db.DB.Create(&transfer).Error; err != nil {
 		util.Fail(c, 500, "发送失败")
 		return
 	}
+	kind := "文件"
+	if f.Type == 0 {
+		kind = "文件夹"
+	}
 	notify := model.Notification{
 		UserID:     req.ReceiverID,
 		Type:       "transfer",
-		Title:      "收到文件",
-		Content:    fmt.Sprintf("%s 向你发送了文件「%s」（%.1fMB）", username(c), f.Name, float64(f.Size)/1024/1024),
+		Title:      "收到" + kind,
+		Content:    fmt.Sprintf("%s 向你发送了%s「%s」", username(c), kind, f.Name),
 		TransferID: transfer.ID,
 	}
 	db.DB.Create(&notify)
-	LogAction(userID, username(c), "transfer", fmt.Sprintf("发送文件 %s 给 %s", f.Name, receiver.Username))
+	LogAction(userID, username(c), "transfer", fmt.Sprintf("发送%s %s 给 %s", kind, f.Name, receiver.Username))
 	util.OK(c, transfer)
 }
 
@@ -135,10 +139,12 @@ func AcceptTransfer(c *gin.Context) {
 		util.Fail(c, 404, "原文件不存在，可能已被发送方删除")
 		return
 	}
-	srcPath := blobPathOf(&src)
-	if _, err := os.Stat(srcPath); err != nil {
-		util.Fail(c, 404, "原文件实体缺失，可能已被发送方删除")
-		return
+	if src.Type == 1 {
+		srcPath := blobPathOf(&src)
+		if _, err := os.Stat(srcPath); err != nil {
+			util.Fail(c, 404, "原文件实体缺失，可能已被发送方删除")
+			return
+		}
 	}
 	var u model.User
 	if err := db.DB.First(&u, userID).Error; err != nil || u.Status != 0 {
@@ -148,18 +154,26 @@ func AcceptTransfer(c *gin.Context) {
 	name := uniqueName(userID, 0, t.FileName)
 	f := model.File{
 		UserID: userID, ParentID: 0, Name: name,
-		Type: 1, Size: t.FileSize, Hash: src.Hash, StoragePath: srcPath,
+		Type: src.Type, Size: src.Size, Hash: src.Hash, StoragePath: srcPathOf(&src),
 	}
 	// 实体登记 + 索引写入 + 转送状态 + 通知已读全部同事务（Bug14 修复）：
 	// 原实现状态更新与通知已读在事务外，若 Save(&t) 失败，接收方文件已建立而转送仍为
 	// pending，接收方可重复接受同一文件产生重复索引；现并入事务保证原子性，
 	// 并用 status=0 条件更新拦截并发重复接受
 	if err := db.DB.Transaction(func(tx *gorm.DB) error {
-		if _, _, err := blob.Acquire(tx, userID, src.Hash, t.FileSize); err != nil {
-			return err
+		if src.Type == 1 {
+			if _, _, err := blob.Acquire(tx, userID, src.Hash, t.FileSize); err != nil {
+				return err
+			}
 		}
 		if err := tx.Create(&f).Error; err != nil {
 			return err
+		}
+		// 文件夹：递归复制整棵子树到接收方名下（新节点复用全局实体，不重复占物理空间）
+		if src.Type == 0 {
+			if err := copyTree(tx, userID, src.UserID, src.ID, f.ID, 0); err != nil {
+				return err
+			}
 		}
 		res := tx.Model(&model.Transfer{}).
 			Where("id = ? AND status = 0", t.ID).Update("status", 1)
@@ -175,14 +189,66 @@ func AcceptTransfer(c *gin.Context) {
 			Update("is_read", 1).Error
 	}); err != nil {
 		if errors.Is(err, blob.ErrQuotaExceeded) {
-			util.Fail(c, 507, "存储空间不足，无法接收该文件")
+			util.Fail(c, 507, "存储空间不足，无法接收该文件夹")
 			return
 		}
 		util.Fail(c, 500, "转存失败")
 		return
 	}
-	LogAction(userID, username(c), "transfer", fmt.Sprintf("接受文件 %s", t.FileName))
+	LogAction(userID, username(c), "transfer", fmt.Sprintf("接受%s %s", kindOf(src.Type), t.FileName))
 	util.OK(c, f)
+}
+
+// srcPathOf 取索引实体路径（文件夹为空串）
+func srcPathOf(f *model.File) string {
+	if f.Type != 1 {
+		return ""
+	}
+	return blobPathOf(f)
+}
+
+// kindOf 类型文案
+func kindOf(t int) string {
+	if t == 0 {
+		return "文件夹"
+	}
+	return "文件"
+}
+
+// copyTree 在事务内递归复制 srcID 的整棵子树到目标父目录 destParentID（接收方转存文件夹用）。
+// 文件节点复用全局实体（blob.Acquire 登记引用），文件夹节点新建空目录并递归。
+// depth 上限 64 层，防止异常循环引用导致无限递归。
+func copyTree(tx *gorm.DB, receiverID, srcUserID, srcID, destParentID uint, depth int) error {
+	if depth > 64 {
+		return errors.New("目录层级过深")
+	}
+	var children []model.File
+	if err := tx.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", srcUserID, srcID).
+		Order("type ASC, name ASC").Find(&children).Error; err != nil {
+		return err
+	}
+	for i := range children {
+		ch := children[i]
+		name := uniqueName(receiverID, destParentID, ch.Name)
+		nf := model.File{
+			UserID: receiverID, ParentID: destParentID, Name: name,
+			Type: ch.Type, Size: ch.Size, Hash: ch.Hash, StoragePath: srcPathOf(&ch),
+		}
+		if ch.Type == 1 {
+			if _, _, err := blob.Acquire(tx, receiverID, ch.Hash, ch.Size); err != nil {
+				return err
+			}
+		}
+		if err := tx.Create(&nf).Error; err != nil {
+			return err
+		}
+		if ch.Type == 0 {
+			if err := copyTree(tx, receiverID, srcUserID, ch.ID, nf.ID, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // RejectTransfer 拒绝转送

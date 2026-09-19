@@ -12,11 +12,14 @@ export function createShare(data: CreateShareData) {
   return httpPost<ShareInfo>('/share/create', data)
 }
 
-/** 获取分享信息；密码分享需携带访问密码（header 传递，与后端 GetShare 一致） */
-export async function getShare(token: string, password?: string) {
+/** 获取分享信息；密码分享需携带访问密码（header 传递，与后端 GetShare 一致）；
+ *  folderId 可选：文件夹分享时浏览指定子文件夹 */
+export async function getShare(token: string, password?: string, folderId?: number) {
   const headers: Record<string, string> = {}
   if (password) headers['X-Share-Password'] = password
-  const res = await request.get<unknown, ApiResponse<ShareInfo>>(`/share/${token}`, { headers })
+  const params: Record<string, number> = {}
+  if (folderId) params.folder_id = folderId
+  const res = await request.get<unknown, ApiResponse<ShareInfo>>(`/share/${token}`, { headers, params })
   return res.data
 }
 

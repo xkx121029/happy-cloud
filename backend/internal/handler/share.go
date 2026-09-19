@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
@@ -107,20 +108,41 @@ func GetShare(c *gin.Context) {
 		util.Fail(c, 401, "密码错误")
 		return
 	}
-	// 获取原始文件信息
-	var f model.File
-	if err := db.DB.Where("id = ? AND is_deleted = 0", s.FileID).First(&f).Error; err != nil {
+	// 获取分享根文件信息
+	var root model.File
+	if err := db.DB.Where("id = ? AND is_deleted = 0", s.FileID).First(&root).Error; err != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
 	children := []model.File{}
-	if f.Type == 0 {
-		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", f.UserID, f.ID).Order("type ASC, created_at DESC").Find(&children)
+	// file 为当前浏览对象：文件夹分享可深入子文件夹（folder_id 必须是分享根的后代）
+	current := root
+	if root.Type == 0 {
+		if folderID, _ := strconv.Atoi(c.Query("folder_id")); folderID > 0 {
+			var cf model.File
+			if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", folderID, root.UserID).First(&cf).Error; err != nil || cf.Type != 0 {
+				util.Fail(c, 404, "文件夹不存在")
+				return
+			}
+			if !isDescendant(root.UserID, uint(folderID), s.FileID) {
+				util.Fail(c, 403, "文件夹不属于该分享")
+				return
+			}
+			current = cf
+		}
+		db.DB.Where("user_id = ? AND parent_id = ? AND is_deleted = 0", root.UserID, current.ID).
+			Order("type ASC, created_at DESC").Find(&children)
 	}
-	util.OK(c, gin.H{"share": s, "file": f, "children": children})
+	util.OK(c, gin.H{
+		"share":             s,
+		"file":              current,
+		"children":          children,
+		"password_required": s.Password != "",
+	})
 }
 
-// DownloadShare 分享下载（文件夹分享时通过 file_id 指定子文件）
+// DownloadShare 分享下载：文件直出；文件夹默认整棵打包 zip（服务端压缩），
+// 也可通过 file_id 指定分享内单个文件/子文件夹
 func DownloadShare(c *gin.Context) {
 	token := c.Param("token")
 	password := c.Query("password")
@@ -142,41 +164,64 @@ func DownloadShare(c *gin.Context) {
 			return
 		}
 	}
-	var f model.File
 	// S4 修复：文件被移入回收站后，分享下载立即失效
-	if shareFileErr := db.DB.Where("id = ? AND is_deleted = 0", share.FileID).First(&f).Error; shareFileErr != nil {
+	var root model.File
+	if shareFileErr := db.DB.Where("id = ? AND is_deleted = 0", share.FileID).First(&root).Error; shareFileErr != nil {
 		util.Fail(c, 404, "文件不存在")
 		return
 	}
-	if f.Type == 0 {
-		// 文件夹分享：file_id 必须属于该文件夹且归属分享所有者
-		fid, _ := strconv.Atoi(c.Query("file_id"))
-		if fid == 0 {
-			util.Fail(c, 400, "文件夹不可直接下载")
+	if root.Type == 1 {
+		// 单文件分享：直接下载
+		path := blobPathOf(&root)
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			util.Fail(c, 404, "文件实体缺失")
 			return
 		}
-		// S4 修复：子文件同样过滤回收站状态
-		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, f.UserID).First(&f).Error; err != nil {
+		// L4 修复：RFC 5987 百分号编码（空格为 %20），避免部分浏览器文件名错误
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", rfc5987Encode(root.Name)))
+		c.File(path)
+		return
+	}
+	// 文件夹分享：target 默认是分享根，可通过 file_id 指定子文件/子文件夹
+	target := root
+	if fid, _ := strconv.Atoi(c.Query("file_id")); fid > 0 {
+		var cf model.File
+		if err := db.DB.Where("id = ? AND user_id = ? AND is_deleted = 0", fid, root.UserID).First(&cf).Error; err != nil {
 			util.Fail(c, 404, "文件不存在")
 			return
 		}
-		if !isDescendant(f.UserID, uint(fid), share.FileID) {
+		if !isDescendant(root.UserID, uint(fid), share.FileID) {
 			util.Fail(c, 403, "文件不属于该分享")
 			return
 		}
+		target = cf
 	}
-	if f.Type != 1 {
-		util.Fail(c, 400, "文件夹不可下载")
+	if target.Type == 1 {
+		// 分享内的单个文件：直出
+		path := blobPathOf(&target)
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			util.Fail(c, 404, "文件实体缺失")
+			return
+		}
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", rfc5987Encode(target.Name)))
+		c.File(path)
 		return
 	}
-	path := blobPathOf(&f)
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		util.Fail(c, 404, "文件实体缺失")
+	// 文件夹：服务端递归打包 zip 后流式输出
+	entries, err := collectSubtree(root.UserID, target.ID)
+	if err != nil {
+		util.Fail(c, 500, "打包失败")
 		return
 	}
-	// L4 修复：RFC 5987 百分号编码（空格为 %20），避免部分浏览器文件名错误
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename*=UTF-8''%s", rfc5987Encode(f.Name)))
-	c.File(path)
+	if len(entries) == 0 {
+		util.Fail(c, 404, "文件夹为空")
+		return
+	}
+	if err := writeZipEntries(c, target.Name, entries); err != nil {
+		log.Printf("[DownloadShare] 打包失败: %v", err)
+		util.Fail(c, 500, "打包失败")
+		return
+	}
 }
 
 // isDescendant 判断 fileID 是否为 ancestorID 的后代

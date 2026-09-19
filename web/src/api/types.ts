@@ -100,6 +100,7 @@ export interface ShareInfo {
   url: string
   file?: FileItem
   files?: FileItem[]
+  children?: FileItem[]
   password_required: boolean
 }
 

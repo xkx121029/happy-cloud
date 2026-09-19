@@ -69,7 +69,7 @@ import TagSelector from '@/components/TagSelector.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUserStore } from '@/stores/user'
 import { dialog, message } from '@/utils/notify'
-import { downloadFile } from '@/utils/download'
+import { downloadFile, downloadFolder } from '@/utils/download'
 import { formatDate, formatSize } from '@/utils/format'
 import { uploadFile, type UploadTaskItem } from '@/utils/uploader'
 
@@ -470,9 +470,10 @@ function toggleSort(key: 'name' | 'date' | 'size' | 'type') {
 }
 
 async function onDownload(f: FileItem) {
-  if (f.type !== 1) return
   try {
-    await downloadFile(f.id, f.name)
+    // 文件夹走服务端打包 zip，文件走分片下载
+    if (f.type === 0) await downloadFolder(f.id, f.name)
+    else await downloadFile(f.id, f.name)
   } catch {
     /* 拦截器已提示 */
   }
@@ -556,11 +557,13 @@ function openBatchMove() {
 }
 
 async function onBatchDownload() {
-  const targets = filteredFiles.value.filter((f) => selected.value.has(f.id) && f.type === 1)
-  if (!targets.length) return message.warning('所选项目中无文件可下载')
-  // 单文件直接下载，多文件打包 zip
+  const targets = filteredFiles.value.filter((f) => selected.value.has(f.id))
+  if (!targets.length) return message.warning('请先选择要下载的项目')
+  // 单选：文件直接下载，文件夹服务端打包 zip；多选统一打包
   if (targets.length === 1) {
-    await downloadFile(targets[0].id, targets[0].name)
+    const t = targets[0]
+    if (t.type === 0) await downloadFolder(t.id, t.name)
+    else await downloadFile(t.id, t.name)
     return
   }
   const idsParam = targets.map((f) => f.id).join(',')
@@ -575,7 +578,7 @@ async function onBatchDownload() {
     a.download = res.headers.get('content-disposition')?.split("filename*=UTF-8''")[1]?.trim() || 'download.zip'
     a.click()
     URL.revokeObjectURL(a.href)
-    message.success(`已开始打包下载 ${targets.length} 个文件`)
+    message.success(`已开始打包下载 ${targets.length} 个项目`)
   } catch {
     /* 拦截器已提示 */
   }
@@ -1025,7 +1028,7 @@ onBeforeUnmount(() => {
               <n-button quaternary circle size="tiny" title="预览" :disabled="f.type === 0" @click="openPreview(f)">
                 <template #icon><n-icon><EyeOutline /></n-icon></template>
               </n-button>
-              <n-button quaternary circle size="tiny" title="下载" :disabled="f.type === 0" @click="onDownload(f)">
+              <n-button quaternary circle size="tiny" title="下载" @click="onDownload(f)">
                 <template #icon><n-icon><DownloadOutline /></n-icon></template>
               </n-button>
               <n-button quaternary circle size="tiny" title="详情" @click="openDetail(f)">
@@ -1088,7 +1091,7 @@ onBeforeUnmount(() => {
                 <td>{{ formatDate(f.created_at) }}</td>
                 <td>
                   <n-space :size="4">
-                    <n-button quaternary size="tiny" :disabled="f.type === 0" @click="onDownload(f)">下载</n-button>
+                    <n-button quaternary size="tiny" @click="onDownload(f)">下载</n-button>
                     <n-button quaternary size="tiny" @click="openRename(f)">重命名</n-button>
                     <n-button quaternary size="tiny" @click="openMove(f)">移动</n-button>
                     <n-button quaternary size="tiny" @click="openShare(f)">分享</n-button>
@@ -1124,7 +1127,7 @@ onBeforeUnmount(() => {
       <div v-if="ctxMenu.file!.type !== 0" class="ctx-item" @click="openPreview(ctxMenu.file!)">
         <n-icon :size="15"><EyeOutline /></n-icon><span>预览</span>
       </div>
-      <div v-if="ctxMenu.file!.type !== 0" class="ctx-item" @click="onDownload(ctxMenu.file!)">
+      <div class="ctx-item" @click="onDownload(ctxMenu.file!)">
         <n-icon :size="15"><DownloadOutline /></n-icon><span>下载</span>
       </div>
       <div class="ctx-item" @click="openDetail(ctxMenu.file!)">
@@ -1146,7 +1149,7 @@ onBeforeUnmount(() => {
       <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="onToggleShared(ctxMenu.file!)">
         {{ (ctxMenu.file!.is_shared ?? 0) === 1 ? '取消公共共享' : '共享到公共目录' }}
       </div>
-      <div v-if="ctxMenu.file!.type === 1" class="ctx-item" @click="openSend(ctxMenu.file!)">发送给用户</div>
+      <div class="ctx-item" @click="openSend(ctxMenu.file!)">发送给用户</div>
       <div class="ctx-divider" />
       <div class="ctx-item danger" @click="onDelete(ctxMenu.file!)">
         <n-icon :size="15"><TrashOutline /></n-icon><span>删除</span>

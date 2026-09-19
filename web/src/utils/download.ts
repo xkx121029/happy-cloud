@@ -2,6 +2,7 @@ import type { AxiosResponse } from 'axios'
 import request from '@/api/request'
 import { message } from './notify'
 import { useSettingsStore } from '@/stores/settings'
+import { useUserStore } from '@/stores/user'
 
 /** 并发分片下载：用浏览器原生 Range 头 + fetch 并行拉取，最后拼成 Blob。
  * 对大文件明显提速；小文件退化到单连接（避免小文件被并发打爆）。
@@ -138,12 +139,38 @@ async function handleFSA(blob: Blob, filename: string) {
   }
 }
 
-export async function downloadShared(token: string, fileId: number, filename: string, password?: string) {
+/** 文件夹服务端打包下载（zip 流式）：folderId 为空则无意义，必须有值 */
+export async function downloadFolder(folderId: number, folderName: string) {
+  const store = useUserStore()
+  const res = await fetch(`/api/files/download/batch?ids=${folderId}`, {
+    headers: { Authorization: `Bearer ${store.token}` }
+  })
+  if (!res.ok) {
+    let msg = '下载失败'
+    try {
+      const d = await res.json()
+      if (d?.message) msg = d.message
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    message.error(msg)
+    throw new Error(msg)
+  }
+  const blob = await res.blob()
+  const name =
+    res.headers.get('content-disposition')?.split("filename*=UTF-8''")[1]?.trim() ||
+    `${folderName}.zip`
+  saveBlob(blob, decodeURIComponent(name))
+}
+
+export async function downloadShared(token: string, fileId: number | null, filename: string, password?: string) {
   // 密码分享下载需携带访问密码，否则后端返回 401（B7 修复）
   const headers: Record<string, string> = {}
   if (password) headers['X-Share-Password'] = password
+  const params: Record<string, number> = {}
+  if (fileId) params.file_id = fileId
   const res = await request.get<Blob, AxiosResponse<Blob>>(`/share/${token}/download`, {
-    params: { file_id: fileId },
+    params,
     headers,
     responseType: 'blob'
   })

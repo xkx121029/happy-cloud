@@ -68,7 +68,7 @@ type Share struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Transfer 文件转送表（用户间私发文件），status: 0 待处理 1 已接受 2 已拒绝
+// Transfer 文件/文件夹转送表（用户间私发），status: 0 待处理 1 已接受 2 已拒绝
 type Transfer struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	SenderID   uint      `gorm:"index" json:"sender_id"`
@@ -77,6 +77,7 @@ type Transfer struct {
 	FileID     uint      `json:"file_id"`
 	FileName   string    `gorm:"size:255" json:"file_name"`
 	FileSize   int64     `json:"file_size"`
+	Type       int       `gorm:"not null" json:"type"` // 0 文件夹 1 文件
 	Status     int       `gorm:"default:0" json:"status"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`

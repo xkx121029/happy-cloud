@@ -76,7 +76,7 @@ async function onSend() {
 </script>
 
 <template>
-  <n-modal :show="visible" preset="card" title="发送文件" style="width: 460px" :bordered="false" @update:show="(v: boolean) => emit('update:visible', v)">
+  <n-modal :show="visible" preset="card" :title="file?.type === 0 ? '发送文件夹' : '发送文件'" style="width: 460px" :bordered="false" @update:show="(v: boolean) => emit('update:visible', v)">
     <div v-if="file">
       <div class="send-file">
         <FileIcon :file="file" :size="28" />
