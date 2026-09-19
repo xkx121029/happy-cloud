@@ -19,6 +19,15 @@ export default defineConfig({
     }
   },
   build: {
-    chunkSizeWarningLimit: 1600
+    chunkSizeWarningLimit: 1600,
+    rollupOptions: {
+      output: {
+        // 性能优化：把稳定的第三方依赖拆成独立 vendor chunk，跨版本可长缓存、并行加载
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-icons': ['@vicons/ionicons5']
+        }
+      }
+    }
   }
 })

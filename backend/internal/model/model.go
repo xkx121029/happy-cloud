@@ -21,15 +21,15 @@ type User struct {
 // 覆盖 RecentFiles 的按 updated_at 排序查询与 StorageOverview 的按用户/类型统计查询
 type File struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
-	UserID      uint      `gorm:"index;index:idx_user_type_del_updated,priority:1" json:"-"`
-	ParentID    uint      `gorm:"index;default:0" json:"parent_id"` // 0 表示根
+	UserID      uint      `gorm:"index;index:idx_user_type_del_updated,priority:1;index:idx_user_parent_del,priority:1" json:"-"`
+	ParentID    uint      `gorm:"index;default:0;index:idx_user_parent_del,priority:2" json:"parent_id"` // 0 表示根
 	Name        string    `gorm:"size:255" json:"name"`
 	Type        int       `gorm:"index:idx_user_type_del_updated,priority:2" json:"type"` // 0 文件夹 1 文件，由业务代码显式赋值
 	Size        int64     `gorm:"default:0" json:"size"`
 	Hash        string    `gorm:"size:64;index" json:"hash"`
 	StoragePath string    `gorm:"size:512" json:"-"`
 	IsShared    int       `gorm:"default:0;index" json:"is_shared"`                        // 0 私有 1 共享到公共目录
-	IsDeleted   int       `gorm:"default:0;index;index:idx_user_type_del_updated,priority:3" json:"is_deleted"` // 0 正常 1 回收站
+	IsDeleted   int       `gorm:"default:0;index;index:idx_user_type_del_updated,priority:3;index:idx_user_parent_del,priority:3" json:"is_deleted"` // 0 正常 1 回收站
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `gorm:"index:idx_user_type_del_updated,priority:4" json:"updated_at"`
 }

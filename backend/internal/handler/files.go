@@ -167,14 +167,31 @@ func ListFiles(c *gin.Context) {
 		model.File
 		Tags []model.Tag `json:"tags"`
 	}
+	// L perf：批量一次性查询本页所有文件的标签，消除“每文件一次查询”的 N+1 问题
+	tagMap := make(map[uint][]model.Tag, len(files))
+	if len(files) > 0 {
+		ids := make([]uint, 0, len(files))
+		for _, f := range files {
+			ids = append(ids, f.ID)
+		}
+		var rows []struct {
+			FileID uint   `gorm:"column:file_id"`
+			ID     uint   `gorm:"column:id"`
+			Name   string `gorm:"column:name"`
+			Color  string `gorm:"column:color"`
+		}
+		db.DB.Table("file_tags").
+			Select("file_tags.file_id, tags.id, tags.name, tags.color").
+			Joins("JOIN tags ON tags.id = file_tags.tag_id").
+			Where("file_tags.file_id IN ?", ids).
+			Find(&rows)
+		for _, r := range rows {
+			tagMap[r.FileID] = append(tagMap[r.FileID], model.Tag{ID: r.ID, Name: r.Name, Color: r.Color})
+		}
+	}
 	items := make([]fileWithTags, 0, len(files))
 	for _, f := range files {
-		var tags []model.Tag
-		db.DB.Table("file_tags").
-			Joins("JOIN tags ON tags.id = file_tags.tag_id").
-			Where("file_tags.file_id = ?", f.ID).
-			Find(&tags)
-		items = append(items, fileWithTags{File: f, Tags: tags})
+		items = append(items, fileWithTags{File: f, Tags: tagMap[f.ID]})
 	}
 	util.OK(c, gin.H{"total": total, "page": page, "page_size": pageSize, "items": items})
 }
