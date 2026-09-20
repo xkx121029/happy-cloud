@@ -4,3 +4,7 @@
 # 含 NAS SSH 凭据的辅助脚本，仅在本地使用，禁止提交
 ssh_*.py
 sftp_*.py
+
+# 本地端到端验证脚本与测试请求体（含临时 token），不入库
+verify_*.py
+req_*.json
