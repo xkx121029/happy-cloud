@@ -2,12 +2,14 @@
 import { computed, h, ref, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  BarChartOutline,
   FolderOpenOutline,
   HomeOutline,
   ListOutline,
   LockClosedOutline,
   LogOutOutline,
   PeopleOutline,
+  SettingsOutline,
   SpeedometerOutline
 } from '@vicons/ionicons5'
 import type { MenuOption } from 'naive-ui'
@@ -32,7 +34,9 @@ const menuOptions: MenuOption[] = [
   { label: '用户管理', key: '/admin/users', icon: renderIcon(PeopleOutline) },
   { label: '文件管理', key: '/admin/files', icon: renderIcon(FolderOpenOutline) },
   { label: '存储索引', key: '/admin/storage', icon: renderIcon(InformationCircleOutline) },
-  { label: '操作日志', key: '/admin/logs', icon: renderIcon(ListOutline) }
+  { label: '数据概览', key: '/admin/trends', icon: renderIcon(BarChartOutline) },
+  { label: '操作日志', key: '/admin/logs', icon: renderIcon(ListOutline) },
+  { label: '系统设置', key: '/admin/settings', icon: renderIcon(SettingsOutline) }
 ]
 
 const userMenuOptions = [
@@ -46,7 +50,9 @@ const pageTitles: Record<string, string> = {
   '/admin/users': '用户管理',
   '/admin/files': '文件管理',
   '/admin/storage': '存储索引',
-  '/admin/logs': '操作日志'
+  '/admin/trends': '数据概览',
+  '/admin/logs': '操作日志',
+  '/admin/settings': '系统设置'
 }
 const pageTitle = computed(() => pageTitles[route.path] ?? '管理后台')
 

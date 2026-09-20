@@ -2,16 +2,22 @@ package handler
 
 import (
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"happy-cloud/backend/internal/blob"
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/model"
+	"happy-cloud/backend/internal/online"
 	"happy-cloud/backend/internal/util"
 )
+
+// processStart 记录进程启动时刻，用于监控面板的 uptime 指标
+var processStart = time.Now()
 
 // ListUsers 用户列表（分页 + 关键字）
 func ListUsers(c *gin.Context) {
@@ -181,11 +187,19 @@ func Stats(c *gin.Context) {
 	db.DB.Model(&model.File{}).Where("type = 1").Select("COALESCE(SUM(size),0) AS total").Scan(&storageUsed)
 	var todayUploads int64
 	db.DB.Model(&model.File{}).Where("type = 1 AND DATE(created_at) = CURDATE()").Count(&todayUploads)
-	// 在线用户数：最近 15 分钟内有登录记录的用户（简化统计）
-	var onlineUsers int64
-	db.DB.Model(&model.Log{}).
-		Where("action = ? AND created_at > DATE_SUB(NOW(), INTERVAL 15 MINUTE)", "login").
-		Distinct("user_id").Count(&onlineUsers)
+	// 在线用户数：最近 15 分钟内有有效请求的用户（由鉴权中间件跟踪）
+	onlineUsers := online.Count(15 * time.Minute)
+
+	// 进程资源指标
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	resource := gin.H{
+		"goroutines": runtime.NumGoroutine(),
+		"mem_alloc":  ms.Alloc,
+		"mem_total":  ms.TotalAlloc,
+		"mem_sys":    ms.Sys,
+		"uptime":     int64(time.Since(processStart).Seconds()),
+	}
 
 	// dedup：去重统计（物理占用 vs 逻辑占用）
 	dedup := gin.H{"physical_used": int64(0), "logical_used": storageUsed.Total, "dedup_saved": int64(0)}
@@ -204,6 +218,7 @@ func Stats(c *gin.Context) {
 		"storage_used":  storageUsed.Total,
 		"today_uploads": todayUploads,
 		"online_users":  onlineUsers,
+		"resource":      resource,
 		"dedup":         dedup,
 	})
 }

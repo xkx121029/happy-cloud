@@ -1,5 +1,5 @@
-import { httpDelete, httpGet, httpPatch, httpPost } from './request'
-import type { AdminFileItem, AdminLog, AdminStats, DedupStats, PageData, UserInfo } from './types'
+import { httpDelete, httpGet, httpPatch, httpPost, httpPut } from './request'
+import type { AdminFileItem, AdminLog, AdminStats, DedupStats, PageData, SystemSettings, TrendData, UserInfo } from './types'
 
 export interface BlobItem {
   hash: string
@@ -43,6 +43,18 @@ export function forceDeleteFile(id: number) {
 
 export function fetchStats() {
   return httpGet<AdminStats>('/admin/stats')
+}
+
+export function fetchSettings() {
+  return httpGet<SystemSettings>('/admin/settings')
+}
+
+export function saveSettings(data: Partial<SystemSettings>) {
+  return httpPut<SystemSettings>('/admin/settings', data)
+}
+
+export function fetchTrends(days = 30) {
+  return httpGet<TrendData>('/admin/trends', { days })
 }
 
 export function listLogs(params: { page: number; page_size: number }) {

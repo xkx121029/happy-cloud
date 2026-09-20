@@ -10,6 +10,7 @@ import (
 	"happy-cloud/backend/internal/handler"
 	"happy-cloud/backend/internal/middleware"
 	"happy-cloud/backend/internal/p2p"
+	"happy-cloud/backend/internal/settings"
 	"happy-cloud/backend/internal/util"
 )
 
@@ -22,6 +23,8 @@ func main() {
 		log.Fatalf("存储目录创建失败: %v", err)
 	}
 	handler.InitAdmin()
+	// 初始化后加载系统设置缓存
+	settings.Reload()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -108,6 +111,9 @@ func main() {
 		admin.GET("/files", handler.AdminListFiles)
 		admin.DELETE("/files/:id", handler.AdminDeleteFile)
 		admin.GET("/stats", handler.Stats)
+		admin.GET("/settings", handler.GetAdminSettings)
+		admin.PUT("/settings", handler.SaveAdminSettings)
+		admin.GET("/trends", handler.Trends)
 		admin.GET("/logs", handler.ListLogs)
 		admin.GET("/storage/index", handler.AdminStorageIndex)
 		admin.GET("/blobs", handler.AdminListBlobs)

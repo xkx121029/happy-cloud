@@ -9,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"happy-cloud/backend/config"
+	"happy-cloud/backend/internal/online"
 	"happy-cloud/backend/internal/util"
 )
 
@@ -75,6 +76,8 @@ func Auth() gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
+		// 在线统计：任意有效请求都刷新该用户最近活跃时间
+		online.Track(claims.UserID)
 		c.Next()
 	}
 }

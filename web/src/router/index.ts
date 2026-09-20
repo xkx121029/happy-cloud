@@ -28,8 +28,10 @@ const router = createRouter({
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/Users.vue'), meta: { title: '用户管理' } },
         { path: 'files', name: 'admin-files', component: () => import('@/views/admin/Files.vue'), meta: { title: '文件管理' } },
         { path: 'monitor', name: 'admin-monitor', component: () => import('@/views/admin/Monitor.vue'), meta: { title: '系统监控' } },
+        { path: 'trends', name: 'admin-trends', component: () => import('@/views/admin/Trends.vue'), meta: { title: '数据概览' } },
         { path: 'logs', name: 'admin-logs', component: () => import('@/views/admin/Logs.vue'), meta: { title: '操作日志' } },
-        { path: 'storage', name: 'admin-storage', component: () => import('@/views/admin/Storage.vue'), meta: { title: '存储管理' } }
+        { path: 'storage', name: 'admin-storage', component: () => import('@/views/admin/Storage.vue'), meta: { title: '存储管理' } },
+        { path: 'settings', name: 'admin-settings', component: () => import('@/views/admin/Settings.vue'), meta: { title: '系统设置' } }
       ]
     },
     // 兜底：未匹配路由进入 404 页面（而非静默跳回首页）

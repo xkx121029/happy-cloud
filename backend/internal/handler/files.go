@@ -21,6 +21,7 @@ import (
 	"happy-cloud/backend/internal/blob"
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/model"
+	"happy-cloud/backend/internal/settings"
 	"happy-cloud/backend/internal/util"
 )
 
@@ -304,8 +305,8 @@ func Upload(c *gin.Context) {
 		util.Fail(c, 400, "缺少文件")
 		return
 	}
-	// 超大文件由客户端走分片，此处仅允许 <= 100MB
-	if file.Size > config.Cfg.LargeFileMB*1024*1024 {
+	// 超大文件由客户端走分片，此处仅允许 <= 上传上限（管理面板可配置，兜底取配置阈值）
+	if file.Size > settings.GetInt64(settings.KeyMaxUploadMB, config.Cfg.LargeFileMB)*1024*1024 {
 		util.Fail(c, 400, "文件过大，请使用分片上传")
 		return
 	}

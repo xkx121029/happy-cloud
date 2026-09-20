@@ -104,13 +104,38 @@ export interface ShareInfo {
   password_required: boolean
 }
 
+export interface ResourceStats {
+  goroutines: number
+  mem_alloc: number
+  mem_total: number
+  mem_sys: number
+  uptime: number
+}
+
 export interface AdminStats {
   user_count: number
   file_count: number
+  folder_count?: number
   storage_used: number
   today_uploads: number
   online_users: number
+  resource?: ResourceStats
   dedup?: DedupStats
+}
+
+// 系统设置（键值对，管理面板可维护）
+export interface SystemSettings {
+  allow_register: string
+  default_quota: string
+  max_upload_mb: string
+}
+
+// 数据趋势（按天）
+export interface TrendData {
+  days: string[]
+  registrations: number[]
+  uploads: number[]
+  upload_bytes: number[]
 }
 
 export interface DedupStats {

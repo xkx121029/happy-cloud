@@ -112,3 +112,10 @@ type UserSettings struct {
 	Settings   string    `gorm:"type:text" json:"settings"` // JSON 字符串
 	UpdatedAt  time.Time `json:"-"`
 }
+
+// SystemSetting 全局系统设置（键值对），由管理员在控制面板维护
+type SystemSetting struct {
+	Key       string    `gorm:"size:64;primaryKey" json:"key"`
+	Value     string    `gorm:"type:text" json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}

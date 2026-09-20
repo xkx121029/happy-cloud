@@ -15,6 +15,7 @@ import (
 	"happy-cloud/backend/internal/db"
 	"happy-cloud/backend/internal/middleware"
 	"happy-cloud/backend/internal/model"
+	"happy-cloud/backend/internal/settings"
 	"happy-cloud/backend/internal/util"
 )
 
@@ -29,6 +30,11 @@ func Register(c *gin.Context) {
 	var req authReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		util.Fail(c, 400, "参数错误")
+		return
+	}
+	// 管理面板可关闭开放注册
+	if !settings.GetBool(settings.KeyAllowRegister, true) {
+		util.Fail(c, 403, "暂未开放注册，请联系管理员")
 		return
 	}
 	if len(req.Username) < 2 || len(req.Username) > 32 {
@@ -54,7 +60,7 @@ func Register(c *gin.Context) {
 		Username: req.Username,
 		Password: string(hash),
 		Email:    req.Email,
-		QuotaMax: 10 * 1024 * 1024 * 1024, // 默认 10GB
+		QuotaMax: settings.GetInt64(settings.KeyDefaultQuota, 10*1024*1024*1024), // 默认配额由管理面板设置，兜底 10GB
 	}
 	if req.Username == config.Cfg.AdminUser {
 		user.Role = 1 // 指定管理员用户名
