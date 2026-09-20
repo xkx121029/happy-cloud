@@ -129,7 +129,8 @@ export interface SystemSettings {
   default_quota: string
   max_upload_mb: string
   public_url: string
-  p2p_public_host: string
+  p2p_ws_url: string
+  p2p_stun_url: string
 }
 
 // 数据趋势（按天）

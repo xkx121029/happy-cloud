@@ -98,11 +98,8 @@ func (s *Service) dropSession(sg *session) {
 }
 
 // clientBaseHost 客户端可访问的对外主机（公网或局域网）。
-// 优先级：管理员面板配置的 P2P 隧道主机 > 环境变量 PUBLIC_HOST > 当前请求 Host 直推。
+// 优先级：环境变量 PUBLIC_HOST > 当前请求 Host 直推。
 func (s *Service) clientBaseHost(c *gin.Context) string {
-	if h := settings.Get(settings.KeyP2PPublicHost, ""); h != "" {
-		return h
-	}
 	if h := config.Cfg.PublicHost; h != "" {
 		return h
 	}
@@ -121,15 +118,38 @@ func stunPortOf() string {
 	return "3478"
 }
 
+// signalURL 构造客户端可连的信令地址。
+// 优先使用管理员配置的完整地址（隧道穿透时必须为 wss://，否则 HTTPS 页面会被混合内容策略拦截），
+// 未配置时按当前请求 Host 推导（局域网直连场景）。
+func (s *Service) signalURL(c *gin.Context) string {
+	base := settings.Get(settings.KeyP2PWSURL, "")
+	if base == "" {
+		base = "ws://" + s.clientBaseHost(c) + ":" + config.Cfg.SignalingPort + "/ws"
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return base + sep + "role=client&room=" + config.Cfg.HostRoom
+}
+
+// iceServers 构造 ICE 服务器列表。
+// 默认使用公共 STUN（隧道不支持 UDP，自建 STUN 无法从浏览器直连）；
+// 管理员配置后以其为准；两者皆空时才退回内置 STUN 地址。
+func (s *Service) iceServers(c *gin.Context) []gin.H {
+	stun := settings.Get(settings.KeyP2PStunURL, settings.DefaultStunURL)
+	if stun == "" {
+		stun = "stun:" + s.clientBaseHost(c) + ":" + stunPortOf()
+	}
+	return []gin.H{{"urls": []string{stun}}}
+}
+
 // Config GET /api/p2p/config（Auth）：下发客户端所需的信令地址与 ICE 服务器
 func (s *Service) Config(c *gin.Context) {
-	host := s.clientBaseHost(c)
-	ws := "ws://" + host + ":" + config.Cfg.SignalingPort + "/ws?role=client&room=" + config.Cfg.HostRoom
-	stun := "stun:" + host + ":" + stunPortOf()
 	util.OK(c, gin.H{
 		"p2p":        config.Cfg.P2PEnabled,
-		"ws":         ws,
+		"ws":         s.signalURL(c),
 		"room":       config.Cfg.HostRoom,
-		"iceServers": []gin.H{{"urls": []string{stun}}},
+		"iceServers": s.iceServers(c),
 	})
 }

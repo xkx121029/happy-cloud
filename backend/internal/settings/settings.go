@@ -17,9 +17,14 @@ const (
 	KeyMaxUploadMB   = "max_upload_mb"  // 单文件上传上限（MB，超过走分片）
 
 	// 访问地址配置（cloudflared 等隧道穿透场景下用于下发正确的公网地址）
-	KeyPublicURL     = "public_url"      // 主页面公开网址（如 https://cloud.example.com），前端分享链接优先使用
-	KeyP2PPublicHost = "p2p_public_host" // P2P 隧道对外主机（信令/STUN 下发的 host，覆盖请求 Host 推导）
+	KeyPublicURL  = "public_url"   // 主页面公开网址（如 https://cloud.example.com），前端分享链接优先使用
+	KeyP2PWSURL   = "p2p_ws_url"   // P2P 信令完整地址（如 wss://cws.example.com/ws），留空则按请求 Host 推导
+	KeyP2PStunURL = "p2p_stun_url" // ICE STUN 完整地址（如 stun:stun.l.google.com:19302），留空则用内置 STUN
 )
+
+// DefaultStunURL 默认公共 STUN。cloudflared 等隧道不支持 UDP 转发，自建 STUN 无法被浏览器直连，
+// 而 STUN 仅用于发现 NAT 映射地址、不承载媒体流量，直接用公共 STUN 即可。
+const DefaultStunURL = "stun:stun.l.google.com:19302"
 
 // 缓存：把 settings 表整表载入内存，带 TTL 失效，避免每次请求都查库
 var (
@@ -90,6 +95,7 @@ func All() map[string]string {
 		KeyDefaultQuota:   strconv.FormatInt(GetInt64(KeyDefaultQuota, 10*1024*1024*1024), 10),
 		KeyMaxUploadMB:    strconv.FormatInt(GetInt64(KeyMaxUploadMB, 100), 10),
 		KeyPublicURL:      Get(KeyPublicURL, ""),
-		KeyP2PPublicHost:  Get(KeyP2PPublicHost, ""),
+		KeyP2PWSURL:       Get(KeyP2PWSURL, ""),
+		KeyP2PStunURL:     Get(KeyP2PStunURL, DefaultStunURL),
 	}
 }

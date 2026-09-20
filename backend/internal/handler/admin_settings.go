@@ -20,7 +20,8 @@ var settingsKeys = map[string]struct{}{
 	settings.KeyDefaultQuota:  {},
 	settings.KeyMaxUploadMB:   {},
 	settings.KeyPublicURL:     {},
-	settings.KeyP2PPublicHost: {},
+	settings.KeyP2PWSURL:      {},
+	settings.KeyP2PStunURL:    {},
 }
 
 // GetAdminSettings 读取全局系统设置
@@ -33,6 +34,16 @@ func SiteInfo(c *gin.Context) {
 	util.OK(c, gin.H{
 		"public_url": settings.Get(settings.KeyPublicURL, ""),
 	})
+}
+
+// hasAnyPrefix 判断 s 是否以任一前缀开头
+func hasAnyPrefix(s string, prefixes ...string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // SaveAdminSettings 保存全局系统设置（仅白名单键，键值写入后强制刷新缓存）
@@ -76,13 +87,18 @@ func SaveAdminSettings(c *gin.Context) {
 				continue
 			}
 			val = strings.TrimRight(val, "/")
-		case settings.KeyP2PPublicHost:
-			// 允许空；否则应为不带协议/端口的主机名，作为 P2P 信令/STUN 下发的 host
-			if val != "" {
-				if strings.Contains(val, "://") || strings.Contains(val, ":") || strings.ContainsAny(val, " \t") {
-					msgs = append(msgs, "P2P 隧道主机需为域名或 IP（不含协议与端口）")
-					continue
-				}
+		case settings.KeyP2PWSURL:
+			// 允许空（按请求 Host 推导）；否则必须是完整的 ws/wss 信令地址。
+			// 隧道穿透场景务必用 wss://，否则 HTTPS 页面会因混合内容被浏览器拦截。
+			if val != "" && !strings.HasPrefix(val, "ws://") && !strings.HasPrefix(val, "wss://") {
+				msgs = append(msgs, "P2P 信令地址需以 ws:// 或 wss:// 开头（如 wss://cws.example.com/ws）")
+				continue
+			}
+		case settings.KeyP2PStunURL:
+			// 允许空（用内置 STUN）；否则需为 stun:/stuns:/turn:/turns: 开头的完整地址
+			if val != "" && !hasAnyPrefix(val, "stun:", "stuns:", "turn:", "turns:") {
+				msgs = append(msgs, "STUN 地址需以 stun: 或 turn: 开头（如 stun:stun.l.google.com:19302）")
+				continue
 			}
 		}
 		// upsert
