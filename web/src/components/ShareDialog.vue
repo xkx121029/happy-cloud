@@ -4,6 +4,7 @@ import { createShare } from '@/api/share'
 import type { FileItem } from '@/api/types'
 import { formatSize } from '@/utils/format'
 import { message } from '@/utils/notify'
+import { getPublicBase } from '@/utils/site'
 import FileIcon from './FileIcon.vue'
 
 const props = defineProps<{ file: FileItem | null; visible: boolean }>()
@@ -22,17 +23,20 @@ const expireOptions = [
   { label: '30 天', value: '30' }
 ]
 
-const shareUrl = computed(() => {
-  if (!result.value) return ''
-  const u = result.value.url
+const shareUrl = ref('')
+
+// 生成对外分享地址：已含协议则原样返回，否则用配置的主页面网址覆盖 origin
+async function buildShareUrl(u: string): Promise<string> {
   if (u.startsWith('http')) return u
-  return `${window.location.origin}${u.startsWith('/') ? '' : '/'}${u}`
-})
+  const base = (await getPublicBase()) || window.location.origin
+  return `${base}${u.startsWith('/') ? '' : '/'}${u}`
+}
 
 function reset() {
   password.value = ''
   expire.value = '0'
   result.value = null
+  shareUrl.value = ''
 }
 
 watch(
@@ -63,6 +67,7 @@ async function onCreate() {
     if (days > 0) data.expire_at = fmtExpire(days)
     const res = await createShare(data)
     result.value = { token: res.token, url: res.url }
+    shareUrl.value = await buildShareUrl(res.url)
     message.success('分享链接创建成功')
   } catch {
     /* 拦截器已提示 */

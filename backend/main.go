@@ -37,6 +37,8 @@ func main() {
 		auth.POST("/login", handler.Login)
 		auth.GET("/me", middleware.Auth(), handler.Me)
 		auth.POST("/change-password", middleware.Auth(), handler.ChangePassword)
+		// 公开站点信息（无需登录）：供前端分享链接等使用
+		api.GET("/site-info", handler.SiteInfo)
 
 		user := api.Group("/user", middleware.Auth())
 		user.GET("/settings", handler.GetSettings)

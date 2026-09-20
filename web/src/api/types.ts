@@ -128,6 +128,8 @@ export interface SystemSettings {
   allow_register: string
   default_quota: string
   max_upload_mb: string
+  public_url: string
+  p2p_public_host: string
 }
 
 // 数据趋势（按天）

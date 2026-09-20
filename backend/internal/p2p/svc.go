@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"happy-cloud/backend/config"
+	"happy-cloud/backend/internal/settings"
 	"happy-cloud/backend/internal/util"
 )
 
@@ -96,8 +97,12 @@ func (s *Service) dropSession(sg *session) {
 	s.mu.Unlock()
 }
 
-// clientBaseHost 客户端可访问的对外主机（公网或局域网）。未配置 PUBLIC_HOST 时取当前请求 Host 直推。
+// clientBaseHost 客户端可访问的对外主机（公网或局域网）。
+// 优先级：管理员面板配置的 P2P 隧道主机 > 环境变量 PUBLIC_HOST > 当前请求 Host 直推。
 func (s *Service) clientBaseHost(c *gin.Context) string {
+	if h := settings.Get(settings.KeyP2PPublicHost, ""); h != "" {
+		return h
+	}
 	if h := config.Cfg.PublicHost; h != "" {
 		return h
 	}

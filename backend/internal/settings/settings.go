@@ -15,6 +15,10 @@ const (
 	KeyAllowRegister = "allow_register" // 是否开放注册："true"/"false"
 	KeyDefaultQuota  = "default_quota"  // 新用户默认配额（字节）
 	KeyMaxUploadMB   = "max_upload_mb"  // 单文件上传上限（MB，超过走分片）
+
+	// 访问地址配置（cloudflared 等隧道穿透场景下用于下发正确的公网地址）
+	KeyPublicURL     = "public_url"      // 主页面公开网址（如 https://cloud.example.com），前端分享链接优先使用
+	KeyP2PPublicHost = "p2p_public_host" // P2P 隧道对外主机（信令/STUN 下发的 host，覆盖请求 Host 推导）
 )
 
 // 缓存：把 settings 表整表载入内存，带 TTL 失效，避免每次请求都查库
@@ -82,8 +86,10 @@ func GetInt64(key string, def int64) int64 {
 // All 返回当前全量设置（供管理员面板读取，已带默认值兜底）
 func All() map[string]string {
 	return map[string]string{
-		KeyAllowRegister: strconv.FormatBool(GetBool(KeyAllowRegister, true)),
-		KeyDefaultQuota:  strconv.FormatInt(GetInt64(KeyDefaultQuota, 10*1024*1024*1024), 10),
-		KeyMaxUploadMB:   strconv.FormatInt(GetInt64(KeyMaxUploadMB, 100), 10),
+		KeyAllowRegister:  strconv.FormatBool(GetBool(KeyAllowRegister, true)),
+		KeyDefaultQuota:   strconv.FormatInt(GetInt64(KeyDefaultQuota, 10*1024*1024*1024), 10),
+		KeyMaxUploadMB:    strconv.FormatInt(GetInt64(KeyMaxUploadMB, 100), 10),
+		KeyPublicURL:      Get(KeyPublicURL, ""),
+		KeyP2PPublicHost:  Get(KeyP2PPublicHost, ""),
 	}
 }

@@ -19,11 +19,20 @@ var settingsKeys = map[string]struct{}{
 	settings.KeyAllowRegister: {},
 	settings.KeyDefaultQuota:  {},
 	settings.KeyMaxUploadMB:   {},
+	settings.KeyPublicURL:     {},
+	settings.KeyP2PPublicHost: {},
 }
 
 // GetAdminSettings 读取全局系统设置
 func GetAdminSettings(c *gin.Context) {
 	util.OK(c, settings.All())
+}
+
+// SiteInfo 公开站点信息（无需登录）：返回主页面公开网址，供前端分享链接等使用
+func SiteInfo(c *gin.Context) {
+	util.OK(c, gin.H{
+		"public_url": settings.Get(settings.KeyPublicURL, ""),
+	})
 }
 
 // SaveAdminSettings 保存全局系统设置（仅白名单键，键值写入后强制刷新缓存）
@@ -59,6 +68,21 @@ func SaveAdminSettings(c *gin.Context) {
 			if val != "true" && val != "false" {
 				msgs = append(msgs, "开放注册需为 true/false")
 				continue
+			}
+		case settings.KeyPublicURL:
+			// 允许空（未配置）或以 http/https 开头；去尾斜杠便于前端拼接
+			if val != "" && !strings.HasPrefix(val, "http://") && !strings.HasPrefix(val, "https://") {
+				msgs = append(msgs, "主页面网址需以 http:// 或 https:// 开头")
+				continue
+			}
+			val = strings.TrimRight(val, "/")
+		case settings.KeyP2PPublicHost:
+			// 允许空；否则应为不带协议/端口的主机名，作为 P2P 信令/STUN 下发的 host
+			if val != "" {
+				if strings.Contains(val, "://") || strings.Contains(val, ":") || strings.ContainsAny(val, " \t") {
+					msgs = append(msgs, "P2P 隧道主机需为域名或 IP（不含协议与端口）")
+					continue
+				}
 			}
 		}
 		// upsert

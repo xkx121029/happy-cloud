@@ -13,6 +13,7 @@ import { cancelShare, listMyShares, updateShare } from '@/api/share'
 import type { MyShareItem } from '@/api/types'
 import { dialog, message } from '@/utils/notify'
 import { formatDate, formatSize } from '@/utils/format'
+import { getPublicBase } from '@/utils/site'
 
 const router = useRouter()
 
@@ -31,12 +32,13 @@ async function load() {
   }
 }
 
-function shareUrl(token: string) {
-  return `${location.origin}/share/${token}`
+async function shareUrl(token: string) {
+  const base = (await getPublicBase()) || location.origin
+  return `${base}/share/${token}`
 }
 
 async function onCopy(s: MyShareItem) {
-  const url = shareUrl(s.token)
+  const url = await shareUrl(s.token)
   try {
     await navigator.clipboard.writeText(url)
     message.success('分享链接已复制')
